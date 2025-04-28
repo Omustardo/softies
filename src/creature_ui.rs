@@ -1,5 +1,4 @@
 use eframe::egui;
-use crate::Creature;
 
 pub struct CreatureUI {
     id: String,

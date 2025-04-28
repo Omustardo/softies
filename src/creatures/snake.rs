@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::{Creature, Segment, CreatureUI};
+use crate::{creature::{Creature, Segment}, creature_ui::CreatureUI};
 
 pub struct Snake {
     segments: Vec<Segment>,

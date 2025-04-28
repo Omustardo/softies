@@ -1,5 +1,5 @@
 use eframe::egui;
-use softies::{DemoCreature, Snake};
+use softies::creatures::{DemoCreature, Snake};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -72,7 +72,7 @@ impl eframe::App for CreatureApp {
         }
 
         // Main content area
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ctx, |_ui| {
             // Delegate to the current creature
             self.current_creature.update(ctx, frame);
         });
