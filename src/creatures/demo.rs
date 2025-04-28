@@ -48,24 +48,45 @@ impl Default for DemoCreature {
 
 impl Creature for DemoCreature {
     fn update_state(&mut self, ctx: &egui::Context) {
-        // Update time for spiral movement
-        self.time += ctx.input(|i| i.unstable_dt);
+        // Only update time if we're actually moving
+        let dt = ctx.input(|i| i.unstable_dt);
+        if dt > 0.0 {
+            self.time += dt;
 
-        // Calculate spiral movement for head only
-        let radius = 100.0 + self.time * 20.0;  // Increasing radius over time
-        let angle = self.time * 2.0;  // Rotating angle
-        let new_head_pos = egui::Pos2::new(
-            self.center.x + radius * angle.cos(),
-            self.center.y + radius * angle.sin(),
-        );
+            // Calculate spiral movement for head only
+            let radius = 100.0 + self.time * 20.0;  // Increasing radius over time
+            let angle = self.time * 2.0;  // Rotating angle
+            let new_head_pos = egui::Pos2::new(
+                self.center.x + radius * angle.cos(),
+                self.center.y + radius * angle.sin(),
+            );
 
-        // Update head position
-        self.segments[0].pos = new_head_pos;
+            // Only update if position actually changed
+            if new_head_pos != self.segments[0].pos {
+                // Update head position
+                self.segments[0].pos = new_head_pos;
 
-        // Update segment positions to maintain fixed distances
-        for i in 1..self.segments.len() {
-            let direction = (self.segments[i-1].pos - self.segments[i].pos).normalized();
-            self.segments[i].pos = self.segments[i-1].pos - direction * self.segment_length;
+                // Update segment positions to maintain fixed distances
+                for i in 1..self.segments.len() {
+                    let direction = (self.segments[i-1].pos - self.segments[i].pos).normalized();
+                    self.segments[i].pos = self.segments[i-1].pos - direction * self.segment_length;
+                }
+
+                // Update side points for all segments
+                for i in 0..self.segments.len() {
+                    let next_pos = if i < self.segments.len() - 1 {
+                        Some(self.segments[i + 1].pos)
+                    } else {
+                        None
+                    };
+                    let prev_pos = if i > 0 {
+                        Some(self.segments[i - 1].pos)
+                    } else {
+                        None
+                    };
+                    self.segments[i].update_side_points(next_pos, prev_pos);
+                }
+            }
         }
 
         // Adjust number of segments if needed
@@ -86,99 +107,69 @@ impl Creature for DemoCreature {
         while self.segments.len() > self.target_segments {
             self.segments.pop();
         }
-
-        // Update side points for all segments
-        for i in 0..self.segments.len() {
-            let next_pos = if i < self.segments.len() - 1 {
-                Some(self.segments[i + 1].pos)
-            } else {
-                None
-            };
-            let prev_pos = if i > 0 {
-                Some(self.segments[i - 1].pos)
-            } else {
-                None
-            };
-            self.segments[i].update_side_points(next_pos, prev_pos);
-        }
     }
 
     fn draw(&self, painter: &egui::Painter) {
         // Pre-allocate vectors for better performance
-        let mut fill_points = Vec::with_capacity(self.segments.len() * 2);
+        let mut shapes = Vec::with_capacity(self.segments.len() * 2); // Reduced capacity since we'll combine shapes
         
         // Draw the skeleton first
         for segment in &self.segments {
-            // Draw the main circle
-            painter.circle_filled(
+            // Add main circle
+            shapes.push(egui::Shape::circle_filled(
                 segment.pos,
                 segment.radius,
                 segment.color,
-            );
-
-            // Draw side points
-            painter.circle_filled(
-                segment.left_point,
-                3.0,
-                egui::Color32::from_rgb(255, 255, 255),
-            );
-            painter.circle_filled(
-                segment.right_point,
-                3.0,
-                egui::Color32::from_rgb(255, 255, 255),
-            );
+            ));
         }
 
-        // Draw lines connecting segments
-        for i in 0..self.segments.len() - 1 {
-            painter.line_segment(
-                [self.segments[i].pos, self.segments[i + 1].pos],
+        // Draw all connecting lines in a single shape
+        if self.segments.len() > 1 {
+            let mut points = Vec::with_capacity(self.segments.len());
+            for segment in &self.segments {
+                points.push(segment.pos);
+            }
+            shapes.push(egui::Shape::line(
+                points,
                 egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 100)),
-            );
+            ));
         }
 
-        // Draw the skin on top if enabled
+        // Draw the skin if enabled
         if self.show_skin && self.segments.len() >= 2 {
-            // Draw the left side
+            // Create fill polygons between adjacent segments
             for i in 0..self.segments.len() - 1 {
-                painter.line_segment(
-                    [self.segments[i].left_point, self.segments[i + 1].left_point],
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
-                );
-            }
-
-            // Draw the right side
-            for i in 0..self.segments.len() - 1 {
-                painter.line_segment(
-                    [self.segments[i].right_point, self.segments[i + 1].right_point],
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
-                );
-            }
-
-            // Draw the ends
-            painter.line_segment(
-                [self.segments[0].left_point, self.segments[0].right_point],
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
-            );
-            painter.line_segment(
-                [self.segments.last().unwrap().left_point, self.segments.last().unwrap().right_point],
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
-            );
-
-            // Build fill points more efficiently
-            fill_points.clear();
-            fill_points.extend(self.segments.iter().map(|s| s.left_point));
-            fill_points.extend(self.segments.iter().rev().map(|s| s.right_point));
-
-            // Draw the fill shape
-            if fill_points.len() >= 3 {
-                painter.add(egui::Shape::convex_polygon(
-                    fill_points,
+                let mut segment_points = Vec::with_capacity(4);
+                segment_points.push(self.segments[i].left_point);
+                segment_points.push(self.segments[i].right_point);
+                segment_points.push(self.segments[i + 1].right_point);
+                segment_points.push(self.segments[i + 1].left_point);
+                
+                shapes.push(egui::Shape::convex_polygon(
+                    segment_points,
                     egui::Color32::from_rgba_premultiplied(100, 200, 100, 64),
                     egui::Stroke::NONE,
                 ));
             }
+
+            // Draw all side lines in a single shape
+            let mut side_points = Vec::with_capacity(self.segments.len() * 2);
+            // Add left side points from head to tail
+            for segment in &self.segments {
+                side_points.push(segment.left_point);
+            }
+            // Add right side points from tail to head
+            for segment in self.segments.iter().rev() {
+                side_points.push(segment.right_point);
+            }
+            shapes.push(egui::Shape::line(
+                side_points,
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
+            ));
         }
+
+        // Draw all shapes in a single batch
+        painter.extend(shapes);
     }
 
     fn get_segments(&self) -> &[Segment] {
@@ -241,10 +232,15 @@ impl eframe::App for DemoCreature {
             );
 
             // Update center position if window is resized
-            self.center = response.rect.center();
+            if response.rect.center() != self.center {
+                self.center = response.rect.center();
+                ctx.request_repaint();
+            }
 
-            // Update creature state
-            self.update_state(ctx);
+            // Only update state if we're visible and not paused
+            if response.rect.width() > 0.0 && response.rect.height() > 0.0 {
+                self.update_state(ctx);
+            }
 
             // Draw the creature
             self.draw(&painter);

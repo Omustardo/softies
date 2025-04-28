@@ -45,7 +45,7 @@ impl Segment {
         };
 
         // Calculate perpendicular vector (90 degrees rotation)
-        let perpendicular = egui::Vec2::new(-direction.y, direction.x);
+        let perpendicular = egui::Vec2::new(direction.y, -direction.x);
 
         // Update side points
         self.left_point = self.pos + perpendicular * self.radius;
