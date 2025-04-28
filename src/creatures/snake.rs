@@ -223,6 +223,8 @@ impl Creature for Snake {
 
 impl eframe::App for Snake {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.request_repaint(); // critical for smooth animation!
+
         // UI controls in the top-left
         egui::TopBottomPanel::top("controls").show(ctx, |ui| {
             self.ui.show_controls(ui, &mut self.target_segments, &mut self.show_properties, &mut self.show_skin);
