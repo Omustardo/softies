@@ -1,5 +1,6 @@
 use eframe::egui;
 use crate::{creature::{Creature, Segment}, creature_ui::CreatureUI};
+use rand::Rng;
 
 pub struct DemoCreature {
     segments: Vec<Segment>,
@@ -10,6 +11,8 @@ pub struct DemoCreature {
     time: f32,
     center: egui::Pos2,
     ui: CreatureUI,
+    target_pos: egui::Pos2,
+    speed: f32,
 }
 
 impl Default for DemoCreature {
@@ -42,6 +45,8 @@ impl Default for DemoCreature {
             time: 0.0,
             center: egui::Pos2::new(400.0, 300.0),
             ui: CreatureUI::new("demo"),
+            target_pos: start_pos,
+            speed: 200.0,
         }
     }
 }
@@ -53,16 +58,34 @@ impl Creature for DemoCreature {
         if dt > 0.0 {
             self.time += dt;
 
-            // Calculate spiral movement for head only
-            let radius = 100.0 + self.time * 20.0;  // Increasing radius over time
-            let angle = self.time * 2.0;  // Rotating angle
-            let new_head_pos = egui::Pos2::new(
-                self.center.x + radius * angle.cos(),
-                self.center.y + radius * angle.sin(),
-            );
+            // Get mouse position or generate random target
+            let mouse_pos = ctx.input(|i| i.pointer.hover_pos());
+            if let Some(pos) = mouse_pos {
+                self.target_pos = pos;
+            } else {
+                // If no mouse position, check if we need a new random target
+                let head_pos = self.segments[0].pos;
+                let distance_to_target = (head_pos - self.target_pos).length();
+                if distance_to_target < 10.0 {
+                    // Generate new random target within screen bounds
+                    let mut rng = rand::thread_rng();
+                    let screen_rect = ctx.screen_rect();
+                    self.target_pos = egui::Pos2::new(
+                        rng.gen_range(screen_rect.min.x..screen_rect.max.x),
+                        rng.gen_range(screen_rect.min.y..screen_rect.max.y),
+                    );
+                }
+            }
+
+            // Calculate direction to target
+            let head_pos = self.segments[0].pos;
+            let direction = (self.target_pos - head_pos).normalized();
+            
+            // Move head toward target
+            let new_head_pos = head_pos + direction * self.speed * dt;
 
             // Only update if position actually changed
-            if new_head_pos != self.segments[0].pos {
+            if new_head_pos != head_pos {
                 // Update head position
                 self.segments[0].pos = new_head_pos;
 
