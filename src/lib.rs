@@ -1,35 +1,61 @@
 use eframe::egui;
 
 pub struct CircleApp {
-    radius: f32,
+    head_pos: egui::Pos2,
+    tail_pos: egui::Pos2,
+    segment_length: f32,
+    is_dragging: bool,
 }
 
 impl Default for CircleApp {
     fn default() -> Self {
-        Self { radius: 100.0 }
+        Self {
+            head_pos: egui::Pos2::new(400.0, 300.0),
+            tail_pos: egui::Pos2::new(350.0, 300.0),
+            segment_length: 50.0,
+            is_dragging: false,
+        }
     }
 }
 
 impl eframe::App for CircleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Add a slider to control the circle's radius
-            ui.add(egui::Slider::new(&mut self.radius, 10.0..=200.0).text("Radius"));
-
             // Create a canvas to draw on
             let (response, painter) = ui.allocate_painter(
                 ui.available_size(),
                 egui::Sense::drag(),
             );
 
-            // Calculate the center of the canvas
-            let center = response.rect.center();
-            
-            // Draw the circle
+            // Handle mouse interaction
+            if response.dragged() {
+                self.head_pos = response.hover_pos().unwrap_or(self.head_pos);
+                self.is_dragging = true;
+            } else {
+                self.is_dragging = false;
+            }
+
+            // Update tail position to maintain fixed distance
+            let direction = (self.head_pos - self.tail_pos).normalized();
+            self.tail_pos = self.head_pos - direction * self.segment_length;
+
+            // Draw the circles
             painter.circle_filled(
-                center,
-                self.radius,
-                egui::Color32::from_rgb(100, 150, 250),
+                self.head_pos,
+                15.0,
+                egui::Color32::from_rgb(200, 100, 100),  // Red for head
+            );
+
+            painter.circle_filled(
+                self.tail_pos,
+                10.0,
+                egui::Color32::from_rgb(100, 200, 100),  // Green for tail
+            );
+
+            // Draw line connecting circles
+            painter.line_segment(
+                [self.head_pos, self.tail_pos],
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 100)),
             );
         });
     }
