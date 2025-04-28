@@ -5,6 +5,38 @@ pub struct Segment {
     pos: egui::Pos2,
     radius: f32,
     color: egui::Color32,
+    left_point: egui::Pos2,
+    right_point: egui::Pos2,
+}
+
+impl Segment {
+    fn new(pos: egui::Pos2, radius: f32, color: egui::Color32) -> Self {
+        Self {
+            pos,
+            radius,
+            color,
+            left_point: pos,
+            right_point: pos,
+        }
+    }
+
+    fn update_side_points(&mut self, next_pos: Option<egui::Pos2>, prev_pos: Option<egui::Pos2>) {
+        let direction = if let Some(next) = next_pos {
+            (next - self.pos).normalized()
+        } else if let Some(prev) = prev_pos {
+            // For the last segment, use the same direction as the previous segment
+            (self.pos - prev).normalized()
+        } else {
+            egui::Vec2::new(1.0, 0.0)  // Default direction if no segments
+        };
+
+        // Calculate perpendicular vector (90 degrees rotation)
+        let perpendicular = egui::Vec2::new(-direction.y, direction.x);
+
+        // Update side points
+        self.left_point = self.pos + perpendicular * self.radius;
+        self.right_point = self.pos - perpendicular * self.radius;
+    }
 }
 
 pub struct CircleApp {
@@ -19,16 +51,16 @@ impl Default for CircleApp {
     fn default() -> Self {
         Self {
             segments: vec![
-                Segment {
-                    pos: egui::Pos2::new(400.0, 300.0),
-                    radius: 15.0,
-                    color: egui::Color32::from_rgb(200, 100, 100),
-                },
-                Segment {
-                    pos: egui::Pos2::new(350.0, 300.0),
-                    radius: 10.0,
-                    color: egui::Color32::from_rgb(100, 200, 100),
-                },
+                Segment::new(
+                    egui::Pos2::new(400.0, 300.0),
+                    15.0,
+                    egui::Color32::from_rgb(200, 100, 100),
+                ),
+                Segment::new(
+                    egui::Pos2::new(350.0, 300.0),
+                    10.0,
+                    egui::Color32::from_rgb(100, 200, 100),
+                ),
             ],
             segment_length: 50.0,
             is_dragging: false,
@@ -127,22 +159,50 @@ impl eframe::App for CircleApp {
                 } else {
                     egui::Vec2::new(-1.0, 0.0)
                 };
-                self.segments.push(Segment {
-                    pos: last_pos + direction * self.segment_length,
-                    radius: 10.0,
-                    color: egui::Color32::from_rgb(100, 200, 100),
-                });
+                self.segments.push(Segment::new(
+                    last_pos + direction * self.segment_length,
+                    10.0,
+                    egui::Color32::from_rgb(100, 200, 100),
+                ));
             }
             while self.segments.len() > self.target_segments {
                 self.segments.pop();
             }
 
-            // Draw the segments
+            // Update side points for all segments
+            for i in 0..self.segments.len() {
+                let next_pos = if i < self.segments.len() - 1 {
+                    Some(self.segments[i + 1].pos)
+                } else {
+                    None
+                };
+                let prev_pos = if i > 0 {
+                    Some(self.segments[i - 1].pos)
+                } else {
+                    None
+                };
+                self.segments[i].update_side_points(next_pos, prev_pos);
+            }
+
+            // Draw the segments and their side points
             for segment in &self.segments {
+                // Draw the main circle
                 painter.circle_filled(
                     segment.pos,
                     segment.radius,
                     segment.color,
+                );
+
+                // Draw side points
+                painter.circle_filled(
+                    segment.left_point,
+                    3.0,
+                    egui::Color32::from_rgb(255, 255, 255),
+                );
+                painter.circle_filled(
+                    segment.right_point,
+                    3.0,
+                    egui::Color32::from_rgb(255, 255, 255),
                 );
             }
 
