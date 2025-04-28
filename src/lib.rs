@@ -58,7 +58,7 @@ impl Segment {
     }
 }
 
-pub struct SpiralCreature {
+pub struct DemoCreature {
     segments: Vec<Segment>,
     segment_length: f32,
     target_segments: usize,
@@ -69,7 +69,7 @@ pub struct SpiralCreature {
     ui: CreatureUI,
 }
 
-impl Default for SpiralCreature {
+impl Default for DemoCreature {
     fn default() -> Self {
         let mut segments = Vec::new();
         let start_pos = egui::Pos2::new(400.0, 300.0);
@@ -103,7 +103,7 @@ impl Default for SpiralCreature {
     }
 }
 
-impl Creature for SpiralCreature {
+impl Creature for DemoCreature {
     fn update_state(&mut self, ctx: &egui::Context) {
         // Update time for spiral movement
         self.time += ctx.input(|i| i.unstable_dt);
@@ -275,7 +275,7 @@ impl Creature for SpiralCreature {
     }
 }
 
-impl eframe::App for SpiralCreature {
+impl eframe::App for DemoCreature {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Request continuous repainting for smooth animation
         ctx.request_repaint();
@@ -387,7 +387,8 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
         .start(
             canvas_id,
             web_options,
-            Box::new(|_cc| Box::new(SpiralCreature::default())),
+            Box::new(|_cc| Box::new(DemoCreature
+        ::default())),
         )
         .await
 } 
