@@ -42,36 +42,51 @@ impl Segment {
 pub struct CircleApp {
     segments: Vec<Segment>,
     segment_length: f32,
-    is_dragging: bool,
     target_segments: usize,
     show_properties: bool,
+    show_skin: bool,
+    time: f32,
+    center: egui::Pos2,
 }
 
 impl Default for CircleApp {
     fn default() -> Self {
+        let mut segments = Vec::new();
+        let start_pos = egui::Pos2::new(400.0, 300.0);
+        let mut current_pos = start_pos;
+        let direction = egui::Vec2::new(-1.0, 0.0);  // Start moving left
+
+        // Create initial segments with offset
+        for i in 0..5 {
+            segments.push(Segment::new(
+                current_pos,
+                if i == 0 { 15.0 } else { 10.0 },
+                if i == 0 {
+                    egui::Color32::from_rgb(200, 100, 100)  // Red for head
+                } else {
+                    egui::Color32::from_rgb(100, 200, 100)  // Green for body
+                },
+            ));
+            current_pos = current_pos + direction * 50.0;  // Offset each segment
+        }
+
         Self {
-            segments: vec![
-                Segment::new(
-                    egui::Pos2::new(400.0, 300.0),
-                    15.0,
-                    egui::Color32::from_rgb(200, 100, 100),
-                ),
-                Segment::new(
-                    egui::Pos2::new(350.0, 300.0),
-                    10.0,
-                    egui::Color32::from_rgb(100, 200, 100),
-                ),
-            ],
+            segments,
             segment_length: 50.0,
-            is_dragging: false,
-            target_segments: 2,
+            target_segments: 5,
             show_properties: false,
+            show_skin: true,
+            time: 0.0,
+            center: egui::Pos2::new(400.0, 300.0),
         }
     }
 }
 
 impl eframe::App for CircleApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Update time for spiral movement
+        self.time += ctx.input(|i| i.unstable_dt);
+
         // UI controls in the top-left
         egui::TopBottomPanel::top("controls").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -90,6 +105,12 @@ impl eframe::App for CircleApp {
                 
                 if ui.button("Toggle Properties").clicked() {
                     self.show_properties = !self.show_properties;
+                }
+
+                ui.separator();
+
+                if ui.button(if self.show_skin { "Hide Skin" } else { "Show Skin" }).clicked() {
+                    self.show_skin = !self.show_skin;
                 }
             });
         });
@@ -137,13 +158,19 @@ impl eframe::App for CircleApp {
                 egui::Sense::drag(),
             );
 
-            // Handle mouse interaction
-            if response.dragged() {
-                self.segments[0].pos = response.hover_pos().unwrap_or(self.segments[0].pos);
-                self.is_dragging = true;
-            } else {
-                self.is_dragging = false;
-            }
+            // Update center position if window is resized
+            self.center = response.rect.center();
+
+            // Calculate spiral movement for head only
+            let radius = 100.0 + self.time * 20.0;  // Increasing radius over time
+            let angle = self.time * 2.0;  // Rotating angle
+            let new_head_pos = egui::Pos2::new(
+                self.center.x + radius * angle.cos(),
+                self.center.y + radius * angle.sin(),
+            );
+
+            // Update head position
+            self.segments[0].pos = new_head_pos;
 
             // Update segment positions to maintain fixed distances
             for i in 1..self.segments.len() {
@@ -159,8 +186,9 @@ impl eframe::App for CircleApp {
                 } else {
                     egui::Vec2::new(-1.0, 0.0)
                 };
+                let new_pos = last_pos + direction * self.segment_length;
                 self.segments.push(Segment::new(
-                    last_pos + direction * self.segment_length,
+                    new_pos,
                     10.0,
                     egui::Color32::from_rgb(100, 200, 100),
                 ));
@@ -184,7 +212,7 @@ impl eframe::App for CircleApp {
                 self.segments[i].update_side_points(next_pos, prev_pos);
             }
 
-            // Draw the segments and their side points
+            // Draw the skeleton first
             for segment in &self.segments {
                 // Draw the main circle
                 painter.circle_filled(
@@ -212,6 +240,57 @@ impl eframe::App for CircleApp {
                     [self.segments[i].pos, self.segments[i + 1].pos],
                     egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 200, 100)),
                 );
+            }
+
+            // Draw the skin on top if enabled
+            if self.show_skin && self.segments.len() >= 2 {
+                // Draw the left side
+                for i in 0..self.segments.len() - 1 {
+                    painter.line_segment(
+                        [self.segments[i].left_point, self.segments[i + 1].left_point],
+                        egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
+                    );
+                }
+
+                // Draw the right side
+                for i in 0..self.segments.len() - 1 {
+                    painter.line_segment(
+                        [self.segments[i].right_point, self.segments[i + 1].right_point],
+                        egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
+                    );
+                }
+
+                // Draw the ends
+                painter.line_segment(
+                    [self.segments[0].left_point, self.segments[0].right_point],
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
+                );
+                painter.line_segment(
+                    [self.segments.last().unwrap().left_point, self.segments.last().unwrap().right_point],
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 80)),
+                );
+
+                // Draw the fill
+                let mut fill_points = Vec::new();
+                
+                // Add left side points
+                for segment in &self.segments {
+                    fill_points.push(segment.left_point);
+                }
+                
+                // Add right side points in reverse order
+                for segment in self.segments.iter().rev() {
+                    fill_points.push(segment.right_point);
+                }
+
+                // Draw the fill shape
+                if fill_points.len() >= 3 {
+                    painter.add(egui::Shape::convex_polygon(
+                        fill_points,
+                        egui::Color32::from_rgba_premultiplied(100, 200, 100, 64),
+                        egui::Stroke::NONE,
+                    ));
+                }
             }
         });
     }
