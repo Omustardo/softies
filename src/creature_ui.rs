@@ -1,5 +1,6 @@
 use eframe::egui;
 
+#[derive(Clone)]
 pub struct CreatureUI {
     id: String,
     creature_type: String,
