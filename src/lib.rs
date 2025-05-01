@@ -18,7 +18,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
         .start(
             canvas_id,
             web_options,
-            Box::new(|_cc| Box::new(SimpleChain::default())),
+            Box::new(|_cc| Box::new(TestChain::default())),
         )
         .await
 } 
