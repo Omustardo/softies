@@ -112,16 +112,32 @@ impl Creature for TestChain {
 
             // Only apply motion after startup delay
             if self.startup_delay <= 0.0 {
-                // Apply a figure-8 motion to the head using velocity control
-                if let Some(head_handle) = self.rigid_body_handles.first() {
-                    if let Some(head) = self.physics_world.rigid_body_set.get_mut(*head_handle) {
-                        let angle = self.time * 1.5;
-                        // Create a figure-8 pattern with velocity control
-                        let velocity = vector![
-                            angle.cos() * 3.0,  // 3 meters per second
-                            (angle * 2.0).sin() * 1.5  // 1.5 meters per second, double frequency
-                        ];
-                        head.set_linvel(velocity, true);
+                // Get cursor position in screen coordinates
+                if let Some(cursor_pos) = ctx.input(|i| i.pointer.hover_pos()) {
+                    if let Some(head_handle) = self.rigid_body_handles.first() {
+                        if let Some(head) = self.physics_world.rigid_body_set.get_mut(*head_handle) {
+                            // Convert cursor position to physics world coordinates
+                            let target_pos = vector![
+                                cursor_pos.x / PIXELS_PER_METER,
+                                cursor_pos.y / PIXELS_PER_METER
+                            ];
+                            
+                            // Get current head position
+                            let current_pos = head.translation();
+                            
+                            // Calculate direction to cursor
+                            let direction = (target_pos - current_pos).normalize();
+                            
+                            // Set velocity towards cursor with some damping
+                            let speed = 5.0; // meters per second
+                            let velocity = direction * speed;
+                            
+                            // Apply velocity with some damping
+                            head.set_linvel(velocity, true);
+                            
+                            // Add some angular damping to prevent excessive rotation
+                            head.set_angvel(0.0, true);
+                        }
                     }
                 }
             }
