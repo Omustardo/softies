@@ -51,21 +51,4 @@ impl Segment {
         self.left_point = self.pos + perpendicular * self.radius;
         self.right_point = self.pos - perpendicular * self.radius;
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-use eframe::wasm_bindgen::{self, prelude::*};
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue> {
-    let web_options = eframe::WebOptions::default();
-    
-    eframe::WebRunner::new()
-        .start(
-            canvas_id,
-            web_options,
-            Box::new(|_cc| Box::new(crate::creatures::DemoCreature::default())),
-        )
-        .await
 } 
