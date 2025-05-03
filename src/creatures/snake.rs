@@ -59,7 +59,8 @@ impl Snake {
         rigid_body_set: &mut RigidBodySet,
         collider_set: &mut ColliderSet,
         impulse_joint_set: &mut ImpulseJointSet,
-        initial_position: Vector2<f32>, // Added parameter for initial position
+        initial_position: Vector2<f32>,
+        creature_id: u128, // Added creature ID
     ) {
         self.segment_handles.clear();
         self.joint_handles.clear();
@@ -83,6 +84,7 @@ impl Snake {
             let collider = ColliderBuilder::ball(self.segment_radius)
                              .restitution(0.2) // Lower restitution for less bounce
                              .density(100.0) // Significantly higher density (closer to water-like mass)
+                             .user_data(creature_id) // Set the creature ID here
                              .build();
             collider_set.insert_with_parent(collider, segment_handle, rigid_body_set);
 
@@ -159,6 +161,10 @@ impl Creature for Snake {
 
     fn attributes_mut(&mut self) -> &mut CreatureAttributes {
         &mut self.attributes
+    }
+
+    fn drawing_radius(&self) -> f32 {
+        self.segment_radius
     }
 
     fn current_state(&self) -> CreatureState {

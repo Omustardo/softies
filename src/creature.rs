@@ -22,6 +22,9 @@ pub trait Creature {
     fn attributes(&self) -> &CreatureAttributes;
     fn attributes_mut(&mut self) -> &mut CreatureAttributes;
 
+    // Drawing info
+    fn drawing_radius(&self) -> f32; // Added for drawing
+
     // State and Behavior
     fn current_state(&self) -> CreatureState;
     // Decides the next state and executes behavior for the current frame.

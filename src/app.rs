@@ -3,7 +3,7 @@ use rapier2d::prelude::*;
 use nalgebra::Vector2;
 
 use crate::creatures::snake::Snake; // Keep for initialization
-use crate::creature::{Creature, CreatureState}; // Import the trait and State
+use crate::creature::{Creature, CreatureState}; // Re-import CreatureState
 
 // Constants for the simulation world
 const PIXELS_PER_METER: f32 = 50.0;
@@ -195,16 +195,26 @@ impl eframe::App for SoftiesApp {
 
             // Draw the creatures
             for creature in &self.creatures {
+                // Determine color based on state (example)
+                let color = match creature.current_state() {
+                    CreatureState::Idle => egui::Color32::from_rgb(100, 100, 200), // Bluish
+                    CreatureState::Wandering => egui::Color32::from_rgb(100, 200, 100), // Greenish
+                    CreatureState::Resting => egui::Color32::from_rgb(200, 200, 100), // Yellowish
+                    CreatureState::SeekingFood => egui::Color32::from_rgb(200, 100, 100), // Reddish
+                    CreatureState::Fleeing => egui::Color32::from_rgb(255, 0, 255),   // Magenta
+                };
+
                 for handle in creature.get_rigid_body_handles() {
                     if let Some(body) = self.rigid_body_set.get(*handle) {
                         let pos = body.translation();
                         let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
-                        let screen_radius = creature.segment_radius * PIXELS_PER_METER * self.zoom;
+                        // Use the new trait method for radius
+                        let screen_radius = creature.drawing_radius() * PIXELS_PER_METER * self.zoom;
 
                         painter.circle_filled(
                             screen_pos,
                             screen_radius,
-                            egui::Color32::GREEN, // Simple green color for now
+                            color, // Use state-based color
                         );
                     }
                 }
