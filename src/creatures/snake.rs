@@ -75,6 +75,7 @@ impl Snake {
                     .motor_model(MotorModel::ForceBased)
                     //.set_contacts_enabled(false) // Maybe disable segment-segment collision?
                     .build();
+                // Insert joint into the provided set
                 let joint_handle = impulse_joint_set.insert(prev_handle, segment_handle, joint, true);
                 self.joint_handles.push(joint_handle);
             }

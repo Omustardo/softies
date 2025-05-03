@@ -5,7 +5,11 @@ pub mod creatures;
 // Segment is defined in creature.rs (Bevy version), remove direct export for now
 // pub use creature::{Creature, Segment};
 
+// Restore import needed for wasm build
 use crate::app::SoftiesApp;
+
+// Remove unused import
+// use crate::app::SoftiesApp;
 
 #[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};
