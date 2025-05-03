@@ -6,7 +6,7 @@ use crate::creatures::Snake; // Import the Snake creature
 use crate::creature::Creature; // Import the trait
 
 // Constants for the simulation world
-const PIXELS_PER_METER: f32 = 50.0; // Let's make things a bit bigger
+const PIXELS_PER_METER: f32 = 50.0;
 const WORLD_WIDTH_METERS: f32 = 20.0; // e.g., 1000 pixels / 50 px/m = 20m
 const WORLD_HEIGHT_METERS: f32 = 16.0; // e.g., 800 pixels / 50 px/m = 16m
 const WALL_THICKNESS: f32 = 0.5; // Half a meter thick walls
@@ -154,33 +154,6 @@ impl eframe::App for SoftiesApp {
                 egui::pos2(screen_center.x + pixel_pt.x, screen_center.y - pixel_pt.y) // Invert Y here
             };
 
-            // --- Draw Walls (Optional Debug) ---
-            for (_handle, collider) in self.collider_set.iter() {
-                 if let Some(parent_handle) = collider.parent() {
-                     if let Some(rb) = self.rigid_body_set.get(parent_handle) {
-                         if rb.body_type() == RigidBodyType::Fixed {
-                             if let Some(cuboid) = collider.shape().as_cuboid() {
-                                  let half_extents = cuboid.half_extents;
-                                  let pos = rb.translation();
-                                  // Calculate screen coords for corners
-                                  let top_left_world = Vector2::new(pos.x - half_extents.x, pos.y + half_extents.y);
-                                  let bottom_right_world = Vector2::new(pos.x + half_extents.x, pos.y - half_extents.y);
-                                  let top_left_screen = world_to_screen(top_left_world);
-                                  let bottom_right_screen = world_to_screen(bottom_right_world);
-                                  // Create egui::Rect (handle potential inversion)
-                                  let wall_rect = egui::Rect::from_min_max(top_left_screen, bottom_right_screen);
-                                  
-                                  painter.rect_stroke(
-                                      wall_rect,
-                                      egui::Rounding::ZERO,
-                                      egui::Stroke::new(1.0, egui::Color32::DARK_GRAY),
-                                  );
-                             }
-                         }
-                     }
-                 }
-            }
-            
             // Draw the snake segments
             for handle in self.snake.get_rigid_body_handles() {
                 if let Some(body) = self.rigid_body_set.get(*handle) {
