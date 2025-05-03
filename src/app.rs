@@ -36,6 +36,9 @@ pub struct SoftiesApp {
     // View state (optional, for panning/zooming later)
     view_center: Vector2<f32>,
     zoom: f32,
+
+    // UI State
+    hovered_creature_id: Option<usize>,
 }
 
 impl Default for SoftiesApp {
@@ -117,6 +120,7 @@ impl Default for SoftiesApp {
             creatures, // Store the vec
             view_center: Vector2::zeros(),
             zoom: 1.0,
+            hovered_creature_id: None, // Initialize hover state
         }
     }
 }
@@ -131,6 +135,7 @@ impl eframe::App for SoftiesApp {
 
         // --- Creature Updates --- 
         // Determine if the snake is resting (e.g., head velocity is low)
+        /* // Temporarily disable resting check
         let resting_velocity_threshold = 0.1; // Meters per second
         let is_snake_resting = 
             if let Some(head_handle) = self.creatures.iter().find_map(|creature| creature.get_rigid_body_handles().first()) {
@@ -138,9 +143,12 @@ impl eframe::App for SoftiesApp {
                     head_body.linvel().norm() < resting_velocity_threshold
                 } else { false } // Body not found (shouldn't happen)
             } else { false }; // No handles (snake not spawned?)
+        */
+        let is_snake_resting = false; // Force not resting for now
 
         // Update passive stats (hunger, energy recovery)
         for creature in &mut self.creatures {
+            // Pass the temporary 'false' flag
             creature.attributes_mut().update_passive_stats(dt, is_snake_resting);
         }
 
@@ -156,7 +164,7 @@ impl eframe::App for SoftiesApp {
 
         // --- Physics Step --- 
         self.physics_pipeline.step(
-            &Vector2::new(0.0, -9.81), // Use standard gravity now
+            &Vector2::new(0.0, -1.0), // Reduced gravity for water environment
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,
@@ -170,6 +178,33 @@ impl eframe::App for SoftiesApp {
             &self.physics_hooks,
             &self.event_handler,
         );
+
+        // --- UI Panel --- 
+        egui::SidePanel::left("creature_list_panel")
+            .resizable(true)
+            .default_width(150.0)
+            .show(ctx, |ui| {
+                ui.heading("Creatures");
+                ui.separator();
+
+                let mut currently_hovered: Option<usize> = None;
+                for (id, creature) in self.creatures.iter().enumerate() {
+                    let label_text = format!(
+                        "ID: {}\nType: {}\nState: {:?}", 
+                        id, 
+                        creature.type_name(),
+                        creature.current_state()
+                    );
+                    // Use selectable label for hover detection
+                    let response = ui.selectable_label(false, label_text);
+                    if response.hovered() {
+                        currently_hovered = Some(id);
+                    }
+                    ui.separator();
+                }
+                // Update the app state *after* checking all labels
+                self.hovered_creature_id = currently_hovered;
+            });
 
         // --- Drawing --- 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -194,9 +229,8 @@ impl eframe::App for SoftiesApp {
             };
 
             // Draw the creatures
-            for creature in &self.creatures {
-                // Determine color based on state (example)
-                let color = match creature.current_state() {
+            for (id, creature) in self.creatures.iter().enumerate() {
+                let base_color = match creature.current_state() {
                     CreatureState::Idle => egui::Color32::from_rgb(100, 100, 200), // Bluish
                     CreatureState::Wandering => egui::Color32::from_rgb(100, 200, 100), // Greenish
                     CreatureState::Resting => egui::Color32::from_rgb(200, 200, 100), // Yellowish
@@ -204,17 +238,27 @@ impl eframe::App for SoftiesApp {
                     CreatureState::Fleeing => egui::Color32::from_rgb(255, 0, 255),   // Magenta
                 };
 
+                let is_hovered = self.hovered_creature_id == Some(id);
+
                 for handle in creature.get_rigid_body_handles() {
                     if let Some(body) = self.rigid_body_set.get(*handle) {
                         let pos = body.translation();
                         let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
-                        // Use the new trait method for radius
                         let screen_radius = creature.drawing_radius() * PIXELS_PER_METER * self.zoom;
+
+                        // Add highlighting effect
+                        if is_hovered {
+                            painter.circle_filled(
+                                screen_pos,
+                                screen_radius * 1.2, // Slightly larger background circle
+                                egui::Color32::WHITE, 
+                            );
+                        }
 
                         painter.circle_filled(
                             screen_pos,
-                            screen_radius,
-                            color, // Use state-based color
+                            screen_radius, 
+                            base_color, // Use state-based color
                         );
                     }
                 }

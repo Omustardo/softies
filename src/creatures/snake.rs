@@ -1,16 +1,10 @@
-// Remove Bevy imports
-// use bevy::prelude::*;
-// use bevy_rapier2d::prelude::*;
 use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
 
 use crate::creature::{Creature, CreatureState}; // Keep crate:: for sibling module
 use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
 
-// Remove Bevy component derive
-// #[derive(Component)]
 pub struct Snake {
-    // Store Rapier handles instead of Bevy Entities
     segment_handles: Vec<RigidBodyHandle>,
     joint_handles: Vec<ImpulseJointHandle>,
     pub segment_radius: f32, // Made public for drawing access in app.rs
@@ -20,9 +14,6 @@ pub struct Snake {
     attributes: CreatureAttributes, // Added attributes field
     current_state: CreatureState, // Added state field
 }
-
-// Remove Default impl as it requires physics context
-// impl Default for Snake { ... }
 
 impl Snake {
     // Simple constructor
@@ -122,7 +113,7 @@ impl Snake {
 
         let target_velocity_amplitude = 2.0 * amplitude_scale;
         let wiggle_frequency = 1.5;
-        let motor_force_factor = 1.0;
+        let motor_force_factor = 10.0;
         let base_energy_cost_per_rad_per_sec = 0.5;
 
         let mut total_applied_velocity = 0.0;
@@ -165,6 +156,10 @@ impl Creature for Snake {
 
     fn drawing_radius(&self) -> f32 {
         self.segment_radius
+    }
+
+    fn type_name(&self) -> &'static str {
+        "Snake"
     }
 
     fn current_state(&self) -> CreatureState {
@@ -218,8 +213,8 @@ impl Creature for Snake {
                 self.apply_wiggle(dt, impulse_joint_set, 0.1, 0.5, 0.1); // Very slow, low cost
             }
             CreatureState::Wandering => {
-                // Standard wiggle
-                self.apply_wiggle(dt, impulse_joint_set, 0.7, 1.0, 0.7); // Slower than before, moderate cost
+                // Standard wiggle - Increased amplitude and cost
+                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.0, 1.5); // Increased amplitude (0.7->1.5), cost (0.7->1.5)
             }
             CreatureState::Resting => {
                 // No active movement, energy recovery happens passively in App::update

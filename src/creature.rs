@@ -25,6 +25,9 @@ pub trait Creature {
     // Drawing info
     fn drawing_radius(&self) -> f32; // Added for drawing
 
+    // Type Info
+    fn type_name(&self) -> &'static str; // Added for UI
+
     // State and Behavior
     fn current_state(&self) -> CreatureState;
     // Decides the next state and executes behavior for the current frame.
