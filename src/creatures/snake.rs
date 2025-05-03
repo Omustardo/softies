@@ -65,8 +65,8 @@ impl Snake {
             // Create RigidBody
             let rb = RigidBodyBuilder::dynamic()
                 .translation(vector![segment_x, segment_y])
-                .linear_damping(0.8) // Reduced damping
-                .angular_damping(1.0) // Simulate rotational drag
+                .linear_damping(10.0) // Increased damping significantly for water resistance
+                .angular_damping(5.0) // Also increase angular damping
                 .build();
             let segment_handle = rigid_body_set.insert(rb);
             self.segment_handles.push(segment_handle);
