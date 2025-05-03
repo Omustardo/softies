@@ -65,7 +65,7 @@ impl Snake {
             // Create RigidBody
             let rb = RigidBodyBuilder::dynamic()
                 .translation(vector![segment_x, segment_y])
-                .linear_damping(2.0) // Simulate drag/water resistance
+                .linear_damping(0.8) // Reduced damping
                 .angular_damping(1.0) // Simulate rotational drag
                 .build();
             let segment_handle = rigid_body_set.insert(rb);
@@ -111,9 +111,9 @@ impl Snake {
     ) {
         self.wiggle_timer += dt * 3.0 * frequency_scale;
 
-        let target_velocity_amplitude = 2.0 * amplitude_scale;
+        let target_velocity_amplitude = 1.8 * amplitude_scale; // Slightly reduced base amplitude
         let wiggle_frequency = 1.5;
-        let motor_force_factor = 10.0;
+        let motor_force_factor = 4.0; // Reduced from 10.0
         let base_energy_cost_per_rad_per_sec = 0.5;
 
         let mut total_applied_velocity = 0.0;
@@ -213,8 +213,8 @@ impl Creature for Snake {
                 self.apply_wiggle(dt, impulse_joint_set, 0.1, 0.5, 0.1); // Very slow, low cost
             }
             CreatureState::Wandering => {
-                // Standard wiggle - Increased amplitude and cost
-                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.0, 1.5); // Increased amplitude (0.7->1.5), cost (0.7->1.5)
+                // Standard wiggle - Increased frequency scale
+                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.5, 1.5); // Increased frequency_scale (1.0->1.5)
             }
             CreatureState::Resting => {
                 // No active movement, energy recovery happens passively in App::update
