@@ -1,10 +1,7 @@
 pub mod creature;
-pub mod creature_ui;
 pub mod creatures;
 
 pub use creature::{Creature, Segment};
-pub use creature_ui::CreatureUI;
-pub use creatures::{Snake};
 
 #[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};

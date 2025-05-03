@@ -1,65 +1,84 @@
-use eframe::egui;
-use softies::creatures::{Snake};
-use softies::creature::Creature;
-use egui::ViewportBuilder;
+use bevy::prelude::*;
+use bevy_rapier2d::prelude::*;
+use bevy_pancam::{PanCam, PanCamPlugin};
+use crate::creatures::snake::Snake;
 
-pub struct CreatureApp {
-    current_creature: Box<dyn Creature>,
-    creature_type: String,
-    show_properties: bool,
+mod creature;
+mod creatures;
+
+// Constants for the aquarium
+const AQUARIUM_WIDTH: f32 = 1000.0;
+const AQUARIUM_HEIGHT: f32 = 800.0;
+const MIN_ZOOM: f32 = 0.1;
+const MAX_ZOOM: f32 = 5.0;
+const CAMERA_BOUND_PADDING: f32 = 0.3; // 30% padding
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
+        .add_plugins(RapierDebugRenderPlugin::default())
+        .add_plugins(PanCamPlugin::default())
+        .add_systems(Startup, setup)
+        .run();
 }
 
-impl Default for CreatureApp {
-    fn default() -> Self {
-        Self {
-            current_creature: Box::new(Snake::default()),
-            creature_type: "test_chain".to_string(),
-            show_properties: false,
+fn setup(mut commands: Commands) {
+    // Calculate camera bounds
+    let max_x = AQUARIUM_WIDTH / 2.0 * (1.0 + CAMERA_BOUND_PADDING);
+    let min_x = -max_x;
+    let max_y = AQUARIUM_HEIGHT / 2.0 * (1.0 + CAMERA_BOUND_PADDING);
+    let min_y = -max_y;
+
+    // Camera with PanCam component
+    commands.spawn((
+        Camera2dBundle::default(),
+        PanCam {
+            grab_buttons: vec![MouseButton::Left],
+            enabled: true,
+            zoom_to_cursor: true,
+            min_scale: MIN_ZOOM,
+            max_scale: Some(MAX_ZOOM),
+            min_x: Some(min_x),
+            max_x: Some(max_x),
+            min_y: Some(min_y),
+            max_y: Some(max_y),
+            ..default()
         }
-    }
-}
+    ));
 
-impl eframe::App for CreatureApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Draw the current creature
-        self.current_creature.update_state(ctx);
-        let painter = ctx.layer_painter(egui::LayerId::new(
-            egui::Order::Background,
-            egui::Id::new("creature"),
-        ));
-        self.current_creature.draw(&painter);
+    // Create aquarium boundaries
+    let wall_thickness = 20.0;
+    
+    // Left wall
+    commands.spawn((
+        RigidBody::Fixed,
+        Collider::cuboid(wall_thickness / 2.0, AQUARIUM_HEIGHT / 2.0),
+        TransformBundle::from(Transform::from_xyz(-AQUARIUM_WIDTH / 2.0, 0.0, 0.0)),
+    ));
 
-        // Draw UI
-        egui::SidePanel::left("controls").show(ctx, |ui| {
-            ui.heading("Controls");
-            if ui.button("Snake").clicked() {
-                self.current_creature = Box::new(Snake::default());
-                self.creature_type = "snake".to_string();
-            }
-            ui.separator();
-            if ui.button("Toggle Properties").clicked() {
-                self.show_properties = !self.show_properties;
-            }
-        });
+    // Right wall
+    commands.spawn((
+        RigidBody::Fixed,
+        Collider::cuboid(wall_thickness / 2.0, AQUARIUM_HEIGHT / 2.0),
+        TransformBundle::from(Transform::from_xyz(AQUARIUM_WIDTH / 2.0, 0.0, 0.0)),
+    ));
 
-        if self.show_properties {
-            egui::SidePanel::right("properties").show(ctx, |ui| {
-                ui.heading("Properties");
-                self.current_creature.show_properties(ui);
-            });
-        }
-    }
-}
+    // Top wall
+    commands.spawn((
+        RigidBody::Fixed,
+        Collider::cuboid(AQUARIUM_WIDTH / 2.0, wall_thickness / 2.0),
+        TransformBundle::from(Transform::from_xyz(0.0, AQUARIUM_HEIGHT / 2.0, 0.0)),
+    ));
 
-fn main() -> Result<(), eframe::Error> {
-    let options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_inner_size([800.0, 600.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "Softies",
-        options,
-        Box::new(|_cc| Box::new(CreatureApp::default())),
-    )
-}
+    // Bottom wall
+    commands.spawn((
+        RigidBody::Fixed,
+        Collider::cuboid(AQUARIUM_WIDTH / 2.0, wall_thickness / 2.0),
+        TransformBundle::from(Transform::from_xyz(0.0, -AQUARIUM_HEIGHT / 2.0, 0.0)),
+    ));
+
+    // Spawn snake
+    let mut snake = Snake::new(10.0, 10, 20.0);
+    snake.spawn(&mut commands);
+} 

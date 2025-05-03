@@ -1,8 +1,7 @@
+Goal: create a 2D aquarium ecosystem with soft-bodied creatures.
+
 Bugs and necessary improvements:
-* avoid stretching of polygons outside of their bounds, probably due to division by zero or similar?
 * when creatures reach the mouse, they jiggle a lot. Ideally they would stay steady.
-* prevent self-intersection so the segments move smoothly
-* improve the outline and skin of creatures.
 
 Movment:
 * Add currents that push everything. Probably need to add weights to each segment to simulate this well?
@@ -21,4 +20,12 @@ Stretch / longer term:
 * Predators and prey. Replication. Balancing of an ecosystem (add light source for plants / plankton).
 * Decouple the view region with the movement region, and allow zooming in and out (with the scrollwheel on desktop, and two fingers if accessing the wasm version on mobile).
 * How hard would it be to make these 3d?
+* improve the outline and skin of creatures.
 * Falling sand, but it's attracted to the skeleton/rigging of a creature. Could look very cool? Ideally it would somewhat lock into place once it surrounded the skeleton, becoming sort of fleshy.
+
+
+
+
+The UI elements that add segments to creatures aren't working. Let's just get rid of those buttons and replace them with a "creature examiner". When a creature is clicked, we should switch to "examine" mode, which keeps the creature always in view (maybe pinned in place, or our view is locked to it)
+
+When clicked, the creature 
