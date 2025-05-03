@@ -2,8 +2,8 @@ use eframe::egui;
 use rapier2d::prelude::*;
 use nalgebra::Vector2;
 
-use crate::creatures::Snake; // Import the Snake creature
-use crate::creature::Creature; // Import the trait
+use crate::creatures::snake::Snake; // Keep for initialization
+use crate::creature::{Creature, CreatureState}; // Import the trait and State
 
 // Constants for the simulation world
 const PIXELS_PER_METER: f32 = 50.0;
@@ -26,11 +26,12 @@ pub struct SoftiesApp {
     impulse_joint_set: ImpulseJointSet,
     multibody_joint_set: MultibodyJointSet,
     ccd_solver: CCDSolver,
+    query_pipeline: QueryPipeline, // Added query pipeline
     physics_hooks: (), // No hooks for now
     event_handler: (), // No events for now
 
     // Creatures
-    snake: Snake, // Store the snake instance
+    creatures: Vec<Box<dyn Creature>>, // Changed from single snake
 
     // View state (optional, for panning/zooming later)
     view_center: Vector2<f32>,
@@ -43,6 +44,7 @@ impl Default for SoftiesApp {
         let mut collider_set = ColliderSet::new();
         let mut impulse_joint_set = ImpulseJointSet::new();
         let multibody_joint_set = MultibodyJointSet::new();
+        let query_pipeline = QueryPipeline::new(); // Initialize query pipeline
 
         // --- Create Walls ---
         let hw = WORLD_WIDTH_METERS / 2.0;
@@ -52,26 +54,30 @@ impl Default for SoftiesApp {
         // Floor
         let floor_rb = RigidBodyBuilder::fixed().translation(vector![0.0, -hh - wt]).build();
         let floor_handle = rigid_body_set.insert(floor_rb);
-        let floor_collider = ColliderBuilder::cuboid(hw + wt, wt).build(); // Extend width slightly
+        let floor_collider = ColliderBuilder::cuboid(hw + wt, wt).user_data(u128::MAX); // Assign high user_data to walls
         collider_set.insert_with_parent(floor_collider, floor_handle, &mut rigid_body_set);
 
         // Ceiling
         let ceiling_rb = RigidBodyBuilder::fixed().translation(vector![0.0, hh + wt]).build();
         let ceiling_handle = rigid_body_set.insert(ceiling_rb);
-        let ceiling_collider = ColliderBuilder::cuboid(hw + wt, wt).build(); // Extend width slightly
+        let ceiling_collider = ColliderBuilder::cuboid(hw + wt, wt).user_data(u128::MAX);
         collider_set.insert_with_parent(ceiling_collider, ceiling_handle, &mut rigid_body_set);
 
         // Left Wall
         let left_wall_rb = RigidBodyBuilder::fixed().translation(vector![-hw - wt, 0.0]).build();
         let left_wall_handle = rigid_body_set.insert(left_wall_rb);
-        let left_wall_collider = ColliderBuilder::cuboid(wt, hh + wt).build(); // Extend height slightly
+        let left_wall_collider = ColliderBuilder::cuboid(wt, hh + wt).user_data(u128::MAX);
         collider_set.insert_with_parent(left_wall_collider, left_wall_handle, &mut rigid_body_set);
 
         // Right Wall
         let right_wall_rb = RigidBodyBuilder::fixed().translation(vector![hw + wt, 0.0]).build();
         let right_wall_handle = rigid_body_set.insert(right_wall_rb);
-        let right_wall_collider = ColliderBuilder::cuboid(wt, hh + wt).build(); // Extend height slightly
+        let right_wall_collider = ColliderBuilder::cuboid(wt, hh + wt).user_data(u128::MAX);
         collider_set.insert_with_parent(right_wall_collider, right_wall_handle, &mut rigid_body_set);
+
+
+        // --- Create Creatures ---
+        let mut creatures: Vec<Box<dyn Creature>> = Vec::new();
 
         // --- Create Snake ---
         let segment_radius = 5.0 / PIXELS_PER_METER;
@@ -83,12 +89,16 @@ impl Default for SoftiesApp {
         );
 
         // Spawn the snake (adjust initial y position)
+        let snake_id = creatures.len() as u128; // ID will be 0
         snake.spawn_rapier(
             &mut rigid_body_set,
             &mut collider_set,
             &mut impulse_joint_set,
             Vector2::new(0.0, hh / 2.0), // Start in the upper half of the aquarium
+            snake_id, // Pass the ID
         );
+        creatures.push(Box::new(snake));
+
 
         Self {
             rigid_body_set,
@@ -101,9 +111,10 @@ impl Default for SoftiesApp {
             impulse_joint_set,
             multibody_joint_set,
             ccd_solver: CCDSolver::new(),
+            query_pipeline, // Store query pipeline
             physics_hooks: (),
             event_handler: (),
-            snake,
+            creatures, // Store the vec
             view_center: Vector2::zeros(),
             zoom: 1.0,
         }
@@ -118,11 +129,32 @@ impl eframe::App for SoftiesApp {
         // Get delta time
         let dt = ctx.input(|i| i.stable_dt);
 
-        // Apply snake wiggle before stepping physics
-        // self.snake.wiggle(dt, &mut self.rigid_body_set); // Old method
-        self.snake.actuate(dt, &mut self.impulse_joint_set); // New method using joint motors
+        // --- Creature Updates --- 
+        // Determine if the snake is resting (e.g., head velocity is low)
+        let resting_velocity_threshold = 0.1; // Meters per second
+        let is_snake_resting = 
+            if let Some(head_handle) = self.creatures.iter().find_map(|creature| creature.get_rigid_body_handles().first()) {
+                if let Some(head_body) = self.rigid_body_set.get(*head_handle) {
+                    head_body.linvel().norm() < resting_velocity_threshold
+                } else { false } // Body not found (shouldn't happen)
+            } else { false }; // No handles (snake not spawned?)
 
-        // Step the physics simulation
+        // Update passive stats (hunger, energy recovery)
+        for creature in &mut self.creatures {
+            creature.attributes_mut().update_passive_stats(dt, is_snake_resting);
+        }
+
+        // Decide state and apply behavior (replaces simple actuation)
+        for creature in &mut self.creatures {
+            creature.update_state_and_behavior(
+                dt, 
+                &mut self.rigid_body_set, 
+                &mut self.impulse_joint_set,
+                &self.collider_set, // Pass collider set
+            );
+        }
+
+        // --- Physics Step --- 
         self.physics_pipeline.step(
             &Vector2::new(0.0, -9.81), // Use standard gravity now
             &self.integration_parameters,
@@ -139,7 +171,7 @@ impl eframe::App for SoftiesApp {
             &self.event_handler,
         );
 
-        // --- Drawing ---
+        // --- Drawing --- 
         egui::CentralPanel::default().show(ctx, |ui| {
             let painter = ui.painter();
             let available_rect = ui.available_rect_before_wrap();
@@ -161,18 +193,20 @@ impl eframe::App for SoftiesApp {
                 egui::pos2(screen_center.x + pixel_pt.x, screen_center.y - pixel_pt.y) // Invert Y here
             };
 
-            // Draw the snake segments
-            for handle in self.snake.get_rigid_body_handles() {
-                if let Some(body) = self.rigid_body_set.get(*handle) {
-                    let pos = body.translation();
-                    let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
-                    let screen_radius = self.snake.segment_radius * PIXELS_PER_METER * self.zoom;
+            // Draw the creatures
+            for creature in &self.creatures {
+                for handle in creature.get_rigid_body_handles() {
+                    if let Some(body) = self.rigid_body_set.get(*handle) {
+                        let pos = body.translation();
+                        let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
+                        let screen_radius = creature.segment_radius * PIXELS_PER_METER * self.zoom;
 
-                    painter.circle_filled(
-                        screen_pos,
-                        screen_radius,
-                        egui::Color32::GREEN, // Simple green color for now
-                    );
+                        painter.circle_filled(
+                            screen_pos,
+                            screen_radius,
+                            egui::Color32::GREEN, // Simple green color for now
+                        );
+                    }
                 }
             }
         });

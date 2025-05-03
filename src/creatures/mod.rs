@@ -1,2 +1,3 @@
 pub mod snake;
-pub use snake::Snake;
+// Remove unused import
+// pub use snake::Snake;

@@ -1,8 +1,10 @@
-pub mod app;
+pub mod creature_attributes;
 pub mod creature;
 pub mod creatures;
+pub mod app;
 
-use crate::app::SoftiesApp;
+// Remove unused import
+// use crate::app::SoftiesApp;
 
 #[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};

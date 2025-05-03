@@ -4,7 +4,8 @@
 use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
 
-use crate::creature::Creature;
+use crate::creature::{Creature, CreatureState}; // Keep crate:: for sibling module
+use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
 
 // Remove Bevy component derive
 // #[derive(Component)]
@@ -16,6 +17,8 @@ pub struct Snake {
     segment_count: usize,
     segment_spacing: f32,
     wiggle_timer: f32, // Timer to control the wiggle animation
+    attributes: CreatureAttributes, // Added attributes field
+    current_state: CreatureState, // Added state field
 }
 
 // Remove Default impl as it requires physics context
@@ -24,6 +27,20 @@ pub struct Snake {
 impl Snake {
     // Simple constructor
     pub fn new(segment_radius: f32, segment_count: usize, segment_spacing: f32) -> Self {
+        // Calculate a rough size based on segments
+        let size = segment_count as f32 * segment_spacing;
+        // Placeholder attributes for a snake
+        let attributes = CreatureAttributes::new(
+            100.0,                // max_energy
+            5.0,                  // energy_recovery_rate
+            100.0,                // max_satiety
+            1.0,                  // metabolic_rate
+            DietType::Carnivore,  // diet_type (let's make it a carnivore for now)
+            size,                 // size
+            vec!["small_fish".to_string(), "worm".to_string()], // prey_tags
+            vec!["snake".to_string(), "medium_predator".to_string()], // self_tags
+        );
+
         Self {
             segment_handles: Vec::with_capacity(segment_count),
             joint_handles: Vec::with_capacity(segment_count.saturating_sub(1)),
@@ -31,6 +48,8 @@ impl Snake {
             segment_count,
             segment_spacing,
             wiggle_timer: 0.0, // Initialize timer
+            attributes,        // Initialize attributes
+            current_state: CreatureState::Wandering, // Start wandering
         }
     }
 
@@ -88,37 +107,35 @@ impl Snake {
         }
     }
 
-    // Method to apply wiggle forces using joint motors
-    pub fn actuate(&mut self, dt: f32, impulse_joint_set: &mut ImpulseJointSet) {
-        self.wiggle_timer += dt * 3.0; // Adjust speed of wiggle here
+    // Helper function for the wiggle/movement logic
+    fn apply_wiggle(
+        &mut self,
+        dt: f32,
+        impulse_joint_set: &mut ImpulseJointSet,
+        amplitude_scale: f32, // Scale factor for wiggle intensity
+        frequency_scale: f32, // Scale factor for wiggle speed
+        energy_cost_scale: f32, // Scale factor for energy cost
+    ) {
+        self.wiggle_timer += dt * 3.0 * frequency_scale;
 
-        // --- MOTOR TUNING PARAMETERS --- >>>> Adjust these! <<<<
-        let target_velocity_amplitude = 2.0; // Radians per second
-        let wiggle_frequency = 1.5; // How many waves along the body
-        // Max force is set during joint creation, but we might need a factor here if set_motor_velocity requires it.
-        // Let's assume the factor scales the max_force (1.0 = use full max_force). Check Rapier docs if needed.
-        let motor_force_factor = 1.0; 
-        // --- END TUNING PARAMETERS ---
+        let target_velocity_amplitude = 2.0 * amplitude_scale;
+        let wiggle_frequency = 1.5;
+        let motor_force_factor = 1.0;
+        let base_energy_cost_per_rad_per_sec = 0.5;
+
+        let mut total_applied_velocity = 0.0;
 
         for (i, handle) in self.joint_handles.iter().enumerate() {
             if let Some(joint) = impulse_joint_set.get_mut(*handle) {
-                // Calculate target angular velocity based on sine wave
-                // Apply phase offset based on position along the snake
                 let phase = self.wiggle_timer + (i as f32 / (self.segment_count - 1) as f32) * std::f32::consts::TAU * wiggle_frequency;
                 let target_velocity = phase.sin() * target_velocity_amplitude;
-
-                // Set the motor's target velocity.
-                // The `set_motor_velocity` function might vary slightly depending on Rapier version.
-                // Assuming signature: `set_motor_velocity(target_vel: Real, factor: Real)`
-                // where factor might scale the stiffness or max_force.
-                // If the joint type is known (e.g., RevoluteJoint), specific methods might exist.
-                // We need to ensure the joint *is* a RevoluteJoint implicitly here.
                 joint.data.set_motor_velocity(JointAxis::AngX, target_velocity, motor_force_factor);
-
-                // Alternative (if API requires explicit stiffness/damping):
-                // joint.data.set_motor(JointAxis::AngX, target_velocity, 0.0, stiffness, damping); // Need axis here too
+                total_applied_velocity += target_velocity.abs();
             }
         }
+
+        let energy_consumed = total_applied_velocity * base_energy_cost_per_rad_per_sec * energy_cost_scale * dt;
+        self.attributes.consume_energy(energy_consumed);
     }
 }
 
@@ -133,5 +150,90 @@ impl Creature for Snake {
 
     fn get_joint_handles(&self) -> &[ImpulseJointHandle] {
         &self.joint_handles
+    }
+
+    // Implement required methods
+    fn attributes(&self) -> &CreatureAttributes {
+        &self.attributes
+    }
+
+    fn attributes_mut(&mut self) -> &mut CreatureAttributes {
+        &mut self.attributes
+    }
+
+    fn current_state(&self) -> CreatureState {
+        self.current_state
+    }
+
+    fn update_state_and_behavior(
+        &mut self,
+        dt: f32,
+        _rigid_body_set: &mut RigidBodySet, // Prefix with underscore to silence warning
+        impulse_joint_set: &mut ImpulseJointSet,
+        _collider_set: &ColliderSet, // Added, prefixed with underscore for now
+    ) {
+        // --- State Transition Logic --- 
+        let mut next_state = self.current_state; // Start with current state
+
+        // Priorities: Fleeing > SeekingFood > Resting > Wandering > Idle 
+        // (We only have Resting and Wandering/Idle logic for now)
+
+        if self.attributes.is_tired() {
+            next_state = CreatureState::Resting;
+        } else if self.attributes.is_hungry() {
+             // TODO: Add sensing check here. If food nearby, switch to SeekingFood
+             // For now, just keep wandering even if hungry, until we have sensing.
+             if self.current_state == CreatureState::Resting { 
+                 // If rested enough, start wandering again
+                 if self.attributes.energy > self.attributes.max_energy * 0.5 { // Example threshold to stop resting
+                     next_state = CreatureState::Wandering;
+                 }
+             } else { // If not resting, default to wandering
+                 next_state = CreatureState::Wandering;
+             }
+        } else { // Not tired, not hungry
+             if self.current_state == CreatureState::Resting { 
+                 // If rested enough, start wandering again
+                 if self.attributes.energy > self.attributes.max_energy * 0.8 { // Higher threshold to stop resting if not hungry
+                     next_state = CreatureState::Wandering;
+                 }
+             } else { // If not resting, default to wandering
+                 next_state = CreatureState::Wandering;
+             }
+        }
+        // TODO: Add transition logic for Fleeing based on sensed predators
+        
+        self.current_state = next_state;
+
+        // --- Execute Behavior based on State --- 
+        match self.current_state {
+            CreatureState::Idle => {
+                // Minimal movement or stop motors completely
+                self.apply_wiggle(dt, impulse_joint_set, 0.1, 0.5, 0.1); // Very slow, low cost
+            }
+            CreatureState::Wandering => {
+                // Standard wiggle
+                self.apply_wiggle(dt, impulse_joint_set, 0.7, 1.0, 0.7); // Slower than before, moderate cost
+            }
+            CreatureState::Resting => {
+                // No active movement, energy recovery happens passively in App::update
+                 // Ensure motors are stopped if they were active
+                 for handle in self.joint_handles.iter() {
+                     if let Some(joint) = impulse_joint_set.get_mut(*handle) {
+                         joint.data.set_motor_velocity(JointAxis::AngX, 0.0, 0.0);
+                     }
+                 }
+            }
+            CreatureState::SeekingFood => {
+                // TODO: Implement movement towards food
+                // For now, just wander
+                self.apply_wiggle(dt, impulse_joint_set, 1.0, 1.2, 1.0); // Slightly faster wiggle, standard cost
+            }
+            CreatureState::Fleeing => {
+                // TODO: Implement movement away from predator
+                // For now, just wander fast
+                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.5, 1.5); // Fast, high cost wiggle
+            }
+        }
     }
 } 

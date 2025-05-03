@@ -9,6 +9,7 @@ use softies::app::SoftiesApp; // Import the app
 // Keep module declarations, but main doesn't use them directly
 mod creature;
 mod creatures;
+mod creature_attributes; // Re-enable this module for the binary crate
 
 // Constants for the aquarium
 const AQUARIUM_WIDTH: f32 = 1000.0;
