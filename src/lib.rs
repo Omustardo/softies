@@ -4,7 +4,7 @@ pub mod creatures;
 
 pub use creature::{Creature, Segment};
 pub use creature_ui::CreatureUI;
-pub use creatures::{TestChain};
+pub use creatures::{Snake};
 
 #[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};
@@ -18,7 +18,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
         .start(
             canvas_id,
             web_options,
-            Box::new(|_cc| Box::new(TestChain::default())),
+            Box::new(|_cc| Box::new(Snake::default())),
         )
         .await
 } 

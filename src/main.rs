@@ -1,5 +1,5 @@
 use eframe::egui;
-use softies::creatures::{TestChain};
+use softies::creatures::{Snake};
 use softies::creature::Creature;
 use egui::ViewportBuilder;
 
@@ -12,7 +12,7 @@ pub struct CreatureApp {
 impl Default for CreatureApp {
     fn default() -> Self {
         Self {
-            current_creature: Box::new(TestChain::default()),
+            current_creature: Box::new(Snake::default()),
             creature_type: "test_chain".to_string(),
             show_properties: false,
         }
@@ -32,9 +32,9 @@ impl eframe::App for CreatureApp {
         // Draw UI
         egui::SidePanel::left("controls").show(ctx, |ui| {
             ui.heading("Controls");
-            if ui.button("Test Chain").clicked() {
-                self.current_creature = Box::new(TestChain::default());
-                self.creature_type = "test_chain".to_string();
+            if ui.button("Snake").clicked() {
+                self.current_creature = Box::new(Snake::default());
+                self.creature_type = "snake".to_string();
             }
             ui.separator();
             if ui.button("Toggle Properties").clicked() {

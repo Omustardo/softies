@@ -5,7 +5,7 @@ use std::any::Any;
 
 const PIXELS_PER_METER: f32 = 50.0;
 
-pub struct TestChain {
+pub struct Snake {
     segments: Vec<Segment>,
     target_segments: usize,
     show_properties: bool,
@@ -17,7 +17,7 @@ pub struct TestChain {
     startup_delay: f32,
 }
 
-impl Default for TestChain {
+impl Default for Snake {
     fn default() -> Self {
         let mut segments = Vec::new();
         let start_pos = egui::Pos2::new(400.0, 300.0);
@@ -103,7 +103,7 @@ impl Default for TestChain {
     }
 }
 
-impl Creature for TestChain {
+impl Creature for Snake {
     fn update_state(&mut self, ctx: &egui::Context) {
         let dt = ctx.input(|i| i.unstable_dt);
         if dt > 0.0 {
@@ -276,7 +276,7 @@ impl Creature for TestChain {
     }
 }
 
-impl eframe::App for TestChain {
+impl eframe::App for Snake {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint();
 
