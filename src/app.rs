@@ -115,6 +115,13 @@ impl eframe::App for SoftiesApp {
         // Set dark theme explicitly
         ctx.set_visuals(egui::Visuals::dark());
 
+        // Get delta time
+        let dt = ctx.input(|i| i.stable_dt);
+
+        // Apply snake wiggle before stepping physics
+        // self.snake.wiggle(dt, &mut self.rigid_body_set); // Old method
+        self.snake.actuate(dt, &mut self.impulse_joint_set); // New method using joint motors
+
         // Step the physics simulation
         self.physics_pipeline.step(
             &Vector2::new(0.0, -9.81), // Use standard gravity now
