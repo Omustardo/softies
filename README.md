@@ -16,7 +16,7 @@ Goals:
 * Target both Desktop and WebAssembly
 * Create some cool creatures. Maybe an aquarium for my website and/or a screensaver?
 
-## Day 1 (2024-04-27)
+## Day 1 (2025-04-27)
 
 I installed Cursor, signed up for its a free trial, and got started.
 
@@ -29,7 +29,7 @@ This used up almost all of my 150 "premium model queries" for Cursor's trial per
 
 The experience was a mix of initially being very pleased at things working, and then significant frustration with Cursor being unable to fix issues despite my varied prompts with different ways to approach it. In the end it made a segmented worm / snake that moved toward the mouse cursor. There were buttons to add and remove add segments, and a tree view to modify segments of the current creature. Each node was connected to one or two other nodes, and they had infill between them as a sort of skin. It worked well on both web and desktop. Definitely more than I could've done on my own in four hours unless it were in a language and with a library that I was familiar with. The downsides is that I don't know the codebase very well since I accepted changes without much review. If the LLM digs itself into a hole it'll be difficult for me to help it out. This early stage of the project is also the most likely for the LLM to do well with since everything easily fits into its context window and it's mostly boilerplate. I suspect things will only get harder for it.
 
-## Day 2 (2024-04-30)
+## Day 2 (2025-04-30)
 
 Another 4 hour session. I paid $20 for a month of Cursor. It's understandable, but also a shame that the free trial is so few queries. It's also a shame it doesn't support local LLMs. To avoid blowing through my Cursor quota in a couple sessions, I used Google's AI Studio and Claude alongside Cursor today. I think AI Studio (Gemini) is the best LLM for coding right now, but Claude has integration with Github so it's easier to select the relevant files as context, and it's still good. I also have a year-long subscription for Claude from a few months ago when it was the strongest model, so I may as well use it now.
 
@@ -38,3 +38,15 @@ I tried to make creature movement more realistic by adding constraints. For exam
 I continued to work on this issue for the entire evening. For whatever reason, this was extremely hard for it. I used lots of strategies: like finding demo code for it, having it write its own minimal demo, having it search the web for example code, having it generate and use tests, use fuzz testing to figure out good physics parameters. I had to provide it with https://rapier.rs/docs/user_guides/rust/common_mistakes as it kept using the wrong scale (e.g. 1 pixel = 1 meter, so it barely moves at all).
 
 In the end I finally got it working by going back to my initial approach of creating a basic Rapier demo and working off of that. The experience this evening was much less pleasant than the first session. It felt like far less got done, and I had to try a lot harder to make progress. I ended up using ~80 queries on Cursor (about half of what I used last session). Still, it did get something working in the end, so I can't complain too much. LLMs are still feeling magical, even if working with them can be frustrating and doesn't feel like I'm bettering myself.
+
+
+## Day 3 (2025-05-02)
+
+Another 4 hours. Roughly the same experience as the last session. I was paying less attention to the process this time compared to prior sessions. Lots of entering queries and not paying attention while it wrote out the responses. Unsurprisingly it had a lot of difficulty.
+
+I am continuing to use egui for the UI and Rapier as the physics engine. Cursor had suggested trying out Bevy (a game engine) in response to some prompts about improving physics. I gave it a try and the code worked on Desktop, but try as I might I couldn't get it to display anything in WebAssembly. I spent a while trying to get this to work but gave up and went back to egui+Rapier. I think I was generally expecting too much from it and giving it low effort descriptions of what I wanted it to do. Didn't make much progress.
+
+I used about 100 Cursor queries.
+
+## Day 4 (2025-05-04)
+
