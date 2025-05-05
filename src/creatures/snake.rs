@@ -1,5 +1,6 @@
 use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
+use eframe::egui; // Add egui import
 
 use crate::creature::{Creature, CreatureState}; // Remove CustomPhysicsApplier from import
 use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
@@ -178,10 +179,6 @@ impl Snake {
     }
 }
 
-// Remove Bevy component struct
-// #[derive(Component)]
-// struct SnakeSegment;
-
 impl Creature for Snake {
     fn get_rigid_body_handles(&self) -> &[RigidBodyHandle] {
         &self.segment_handles
@@ -304,6 +301,115 @@ impl Creature for Snake {
         for handle in self.get_rigid_body_handles() { 
             // Call the associated helper function (now part of impl Snake)
             Snake::apply_anisotropic_drag(*handle, rigid_body_set, perp_drag, forward_drag);
+        }
+    }
+
+    /// Draws the snake using egui.
+    fn draw(
+        &self,
+        painter: &egui::Painter,
+        rigid_body_set: &RigidBodySet,
+        world_to_screen: &dyn Fn(Vector2<f32>) -> egui::Pos2,
+        zoom: f32,
+        is_hovered: bool,
+    ) {
+        let base_color = match self.current_state() {
+            CreatureState::Idle => egui::Color32::from_rgb(100, 100, 200), // Bluish
+            CreatureState::Wandering => egui::Color32::from_rgb(100, 200, 100), // Greenish
+            CreatureState::Resting => egui::Color32::from_rgb(200, 200, 100), // Yellowish
+            CreatureState::SeekingFood => egui::Color32::from_rgb(200, 100, 100), // Reddish
+            CreatureState::Fleeing => egui::Color32::from_rgb(255, 0, 255),   // Magenta
+        };
+
+        let screen_radius = self.drawing_radius() * PIXELS_PER_METER * zoom; // Need PIXELS_PER_METER, perhaps pass it in? For now, define locally.
+        const PIXELS_PER_METER: f32 = 50.0; // TODO: Avoid defining this constant here. Pass from app?
+
+        // Get body handles
+        let handles = self.get_rigid_body_handles();
+        if handles.len() < 2 {
+            // Fallback: Draw circles if not enough segments for skin
+            for handle in handles {
+                if let Some(body) = rigid_body_set.get(*handle) {
+                    let pos = body.translation();
+                    let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
+
+                    if is_hovered {
+                        painter.circle_filled(
+                            screen_pos,
+                            screen_radius * 1.2,
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    painter.circle_filled(screen_pos, screen_radius, base_color);
+                }
+            }
+            return; // Exit early
+        }
+
+        // --- Draw Snake Skin ---
+        let mut world_positions: Vec<Vector2<f32>> = Vec::with_capacity(handles.len());
+        for handle in handles {
+            if let Some(body) = rigid_body_set.get(*handle) {
+                world_positions.push(*body.translation());
+            } else {
+                world_positions.clear(); // Don't draw partial snake if a body is missing
+                break;
+            }
+        }
+
+        if world_positions.len() < 2 { return; } // Should be redundant due to check above, but safe.
+
+        let mut side1_points: Vec<Vector2<f32>> = Vec::with_capacity(handles.len());
+        let mut side2_points: Vec<Vector2<f32>> = Vec::with_capacity(handles.len());
+        let radius = self.drawing_radius();
+
+        // Calculate offset points
+        for i in 0..world_positions.len() {
+            let p_curr = world_positions[i];
+            let direction = if i == 0 {
+                (world_positions[1] - p_curr).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+            } else if i == world_positions.len() - 1 {
+                 (p_curr - world_positions[i-1]).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+            } else {
+                ((world_positions[i+1] - world_positions[i-1]) / 2.0).try_normalize(1e-6).unwrap_or_else(|| {
+                    (world_positions[i+1] - p_curr).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+                })
+            };
+            let perpendicular = Vector2::new(-direction.y, direction.x);
+            side1_points.push(p_curr + perpendicular * radius);
+            side2_points.push(p_curr - perpendicular * radius);
+        }
+
+        // Draw skin as individual quadrilaterals
+        for i in 0..(world_positions.len() - 1) {
+            let quad_world = [
+                side1_points[i],
+                side1_points[i+1],
+                side2_points[i+1],
+                side2_points[i],
+            ];
+
+            let quad_screen: Vec<egui::Pos2> = quad_world
+                .into_iter()
+                .map(|wp| world_to_screen(wp))
+                .collect();
+
+            if quad_screen.len() == 4 { // Ensure we have 4 points
+                if is_hovered {
+                    // Draw highlight outline for this segment
+                    painter.add(egui::Shape::convex_polygon(
+                        quad_screen.clone(),
+                        egui::Color32::TRANSPARENT,
+                        egui::Stroke::new(screen_radius * 0.4, egui::Color32::WHITE),
+                    ));
+                }
+                // Draw the main skin segment
+                painter.add(egui::Shape::convex_polygon(
+                    quad_screen,
+                    base_color,
+                    egui::Stroke::NONE,
+                ));
+            }
         }
     }
 } 
