@@ -135,20 +135,25 @@ impl eframe::App for SoftiesApp {
 
         // --- Creature Updates --- 
         // Determine if the snake is resting (e.g., head velocity is low)
-        /* // Temporarily disable resting check
+        // Re-enable resting check
         let resting_velocity_threshold = 0.1; // Meters per second
+        // Find the head velocity of the *first* creature for now (simplification)
+        // TODO: Check resting state for each creature individually
         let is_snake_resting = 
-            if let Some(head_handle) = self.creatures.iter().find_map(|creature| creature.get_rigid_body_handles().first()) {
-                if let Some(head_body) = self.rigid_body_set.get(*head_handle) {
-                    head_body.linvel().norm() < resting_velocity_threshold
-                } else { false } // Body not found (shouldn't happen)
-            } else { false }; // No handles (snake not spawned?)
-        */
-        let is_snake_resting = false; // Force not resting for now
+            if let Some(creature) = self.creatures.first() { // Check if creatures exist
+                if let Some(head_handle) = creature.get_rigid_body_handles().first() {
+                    if let Some(head_body) = self.rigid_body_set.get(*head_handle) {
+                        head_body.linvel().norm() < resting_velocity_threshold
+                    } else { false } // Body not found
+                } else { false } // No handles
+            } else { false }; // No creatures
+        // Remove the forced false value
+        // let is_snake_resting = false; // Force not resting for now 
 
         // Update passive stats (hunger, energy recovery)
         for creature in &mut self.creatures {
-            // Pass the temporary 'false' flag
+            // Pass the actual resting state
+            // TODO: Pass individual resting state for each creature later
             creature.attributes_mut().update_passive_stats(dt, is_snake_resting);
         }
 
@@ -160,6 +165,14 @@ impl eframe::App for SoftiesApp {
                 &mut self.impulse_joint_set,
                 &self.collider_set, // Pass collider set
             );
+        }
+
+        // --- Apply Custom Physics Forces --- 
+        // This loop is now simpler. It calls the method on the Creature trait.
+        // If a creature doesn't override the default empty method, nothing happens.
+        // If it does (like Snake), its custom logic is executed.
+        for creature in &self.creatures { // Need immutable borrow to call &self method
+            creature.apply_custom_forces(&mut self.rigid_body_set);
         }
 
         // --- Physics Step --- 

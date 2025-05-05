@@ -1,7 +1,7 @@
 use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
 
-use crate::creature::{Creature, CreatureState}; // Keep crate:: for sibling module
+use crate::creature::{Creature, CreatureState}; // Remove CustomPhysicsApplier from import
 use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
 
 pub struct Snake {
@@ -66,7 +66,9 @@ impl Snake {
             let rb = RigidBodyBuilder::dynamic()
                 .translation(vector![segment_x, segment_y])
                 .linear_damping(10.0) // Increased damping significantly for water resistance
-                .angular_damping(5.0) // Also increase angular damping
+                .angular_damping(5.0) // Increase angular damping
+                .sleeping(false) // Disable sleeping for snake segments
+                .ccd_enabled(true) // Enable CCD when disabling sleeping
                 .build();
             let segment_handle = rigid_body_set.insert(rb);
             self.segment_handles.push(segment_handle);
@@ -130,6 +132,50 @@ impl Snake {
         let energy_consumed = total_applied_velocity * base_energy_cost_per_rad_per_sec * energy_cost_scale * dt;
         self.attributes.consume_energy(energy_consumed);
     }
+
+    // Helper function to apply anisotropic drag.
+    // Drag Force = -coeff * velocity_component * |velocity_component| * direction_vector
+    fn apply_anisotropic_drag(
+        body_handle: RigidBodyHandle,
+        rigid_body_set: &mut RigidBodySet,
+        perp_drag_coeff: f32, // Higher resistance perpendicular to body segment
+        forward_drag_coeff: f32, // Lower resistance parallel to body segment
+    ) {
+       if let Some(body) = rigid_body_set.get_mut(body_handle) {
+            let linvel = *body.linvel();
+            // Ensure velocity is not NaN or infinite, which can cause issues
+            if !linvel.x.is_finite() || !linvel.y.is_finite() {
+                return;
+            }
+
+            let angle = body.rotation().angle();
+            let forward_dir = Vector2::new(angle.cos(), angle.sin());
+            let right_dir = Vector2::new(-angle.sin(), angle.cos()); // Perpendicular
+
+            let v_forward = linvel.dot(&forward_dir);
+            let v_perpendicular = linvel.dot(&right_dir);
+
+            // Quadratic drag model: F = -k * v * |v|
+            // Ensure coefficients are non-negative
+            let safe_perp_coeff = perp_drag_coeff.max(0.0);
+            let safe_forward_coeff = forward_drag_coeff.max(0.0);
+
+            let drag_force_perp_magnitude = safe_perp_coeff * v_perpendicular * v_perpendicular.abs();
+            let drag_force_forward_magnitude = safe_forward_coeff * v_forward * v_forward.abs();
+
+            // Calculate force vectors
+            let drag_force_perp = -drag_force_perp_magnitude * right_dir;
+            let drag_force_forward = -drag_force_forward_magnitude * forward_dir;
+
+            // Apply forces if they are finite
+            if drag_force_perp.x.is_finite() && drag_force_perp.y.is_finite() {
+                body.add_force(drag_force_perp, true);
+            }
+            if drag_force_forward.x.is_finite() && drag_force_forward.y.is_finite() {
+                body.add_force(drag_force_forward, true);
+            }
+        }
+    }
 }
 
 // Remove Bevy component struct
@@ -175,6 +221,7 @@ impl Creature for Snake {
     ) {
         // --- State Transition Logic --- 
         let mut next_state = self.current_state; // Start with current state
+        let current_energy = self.attributes.energy;
 
         // Priorities: Fleeing > SeekingFood > Resting > Wandering > Idle 
         // (We only have Resting and Wandering/Idle logic for now)
@@ -204,9 +251,18 @@ impl Creature for Snake {
         }
         // TODO: Add transition logic for Fleeing based on sensed predators
         
+        if next_state != self.current_state {
+            println!(
+                "State Transition: {:?} -> {:?} (Energy: {:.2})", 
+                self.current_state, next_state, current_energy
+            );
+        }
         self.current_state = next_state;
 
         // --- Execute Behavior based on State --- 
+        // Log current state and energy before acting
+        // println!("Executing State: {:?} (Energy: {:.2})", self.current_state, self.attributes.energy);
+
         match self.current_state {
             CreatureState::Idle => {
                 // Minimal movement or stop motors completely
@@ -218,23 +274,36 @@ impl Creature for Snake {
             }
             CreatureState::Resting => {
                 // No active movement, energy recovery happens passively in App::update
-                 // Ensure motors are stopped if they were active
+                 // Ensure motors target zero velocity, but keep force available
+                 let motor_force_factor = 4.0; // Get the same factor used in apply_wiggle
                  for handle in self.joint_handles.iter() {
                      if let Some(joint) = impulse_joint_set.get_mut(*handle) {
-                         joint.data.set_motor_velocity(JointAxis::AngX, 0.0, 0.0);
+                         // Set target velocity to 0, but KEEP the force factor
+                         joint.data.set_motor_velocity(JointAxis::AngX, 0.0, motor_force_factor);
                      }
                  }
             }
             CreatureState::SeekingFood => {
                 // TODO: Implement movement towards food
-                // For now, just wander
-                self.apply_wiggle(dt, impulse_joint_set, 1.0, 1.2, 1.0); // Slightly faster wiggle, standard cost
+                self.apply_wiggle(dt, impulse_joint_set, 1.0, 1.2, 1.0); 
             }
             CreatureState::Fleeing => {
                 // TODO: Implement movement away from predator
-                // For now, just wander fast
-                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.5, 1.5); // Fast, high cost wiggle
+                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.5, 1.5); 
             }
+        }
+    }
+
+    /// Override the default apply_custom_forces for Snake.
+    fn apply_custom_forces(&self, rigid_body_set: &mut RigidBodySet) {
+        // --- Apply Hydrodynamic Forces --- 
+        // These coefficients NEED TUNING!
+        let perp_drag = 5.0;  // Significantly higher drag for sideways motion
+        let forward_drag = 0.5; // Lower drag for forward/backward motion
+
+        for handle in self.get_rigid_body_handles() { 
+            // Call the associated helper function (now part of impl Snake)
+            Snake::apply_anisotropic_drag(*handle, rigid_body_set, perp_drag, forward_drag);
         }
     }
 } 
