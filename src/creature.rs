@@ -1,5 +1,6 @@
 use rapier2d::prelude::{RigidBodyHandle, ImpulseJointHandle, RigidBodySet, ImpulseJointSet, ColliderSet};
 use nalgebra::Vector2; // Added for vector math in helper
+use eframe::egui; // Added for Painter in draw method
 
 use crate::creature_attributes::CreatureAttributes;
 
@@ -9,9 +10,16 @@ pub enum CreatureState {
     Idle,      // Doing nothing specific, minimal movement.
     Wandering, // Exploring randomly.
     Resting,   // Actively recovering energy.
-    SeekingFood,
+    SeekingFood, // Includes plankton seeking light
     Fleeing,
     // Add more states as needed (e.g., Eating, Mating)
+}
+
+/// Context about the simulation world passed to creature updates.
+#[derive(Debug, Clone, Copy)]
+pub struct WorldContext {
+    pub world_height: f32,
+    pub pixels_per_meter: f32,
 }
 
 pub trait Creature {
@@ -39,6 +47,7 @@ pub trait Creature {
         rigid_body_set: &mut RigidBodySet,
         impulse_joint_set: &mut ImpulseJointSet,
         collider_set: &ColliderSet,
+        world_context: &WorldContext, // Changed parameter
         // Add other context later, e.g., sensing results: &SensingData
     );
 
@@ -54,8 +63,9 @@ pub trait Creature {
         &self,
         painter: &egui::Painter,
         rigid_body_set: &RigidBodySet,
-        world_to_screen: &dyn Fn(Vector2<f32>) -> egui::Pos2, // Changed from &impl Fn
+        world_to_screen: &dyn Fn(Vector2<f32>) -> egui::Pos2,
         zoom: f32,
         is_hovered: bool,
+        pixels_per_meter: f32, // Added parameter
     );
 }

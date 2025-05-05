@@ -2,7 +2,7 @@ use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
 use eframe::egui; // Add egui import
 
-use crate::creature::{Creature, CreatureState}; // Remove CustomPhysicsApplier from import
+use crate::creature::{Creature, CreatureState, WorldContext}; // Add WorldContext import
 use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
 
 pub struct Snake {
@@ -215,6 +215,7 @@ impl Creature for Snake {
         _rigid_body_set: &mut RigidBodySet, // Prefix with underscore to silence warning
         impulse_joint_set: &mut ImpulseJointSet,
         _collider_set: &ColliderSet, // Added, prefixed with underscore for now
+        _world_context: &WorldContext, // Added parameter
     ) {
         // --- State Transition Logic --- 
         let mut next_state = self.current_state; // Start with current state
@@ -312,6 +313,7 @@ impl Creature for Snake {
         world_to_screen: &dyn Fn(Vector2<f32>) -> egui::Pos2,
         zoom: f32,
         is_hovered: bool,
+        pixels_per_meter: f32, // Added parameter
     ) {
         let base_color = match self.current_state() {
             CreatureState::Idle => egui::Color32::from_rgb(100, 100, 200), // Bluish
@@ -321,8 +323,7 @@ impl Creature for Snake {
             CreatureState::Fleeing => egui::Color32::from_rgb(255, 0, 255),   // Magenta
         };
 
-        let screen_radius = self.drawing_radius() * PIXELS_PER_METER * zoom; // Need PIXELS_PER_METER, perhaps pass it in? For now, define locally.
-        const PIXELS_PER_METER: f32 = 50.0; // TODO: Avoid defining this constant here. Pass from app?
+        let screen_radius = self.drawing_radius() * pixels_per_meter * zoom; // Use passed parameter
 
         // Get body handles
         let handles = self.get_rigid_body_handles();

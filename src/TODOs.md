@@ -1,7 +1,10 @@
 Goal: create a 2D aquarium ecosystem with soft-bodied creatures.
 
 Bugs and necessary improvements:
-* when creatures reach the mouse, they jiggle a lot. Ideally they would stay steady.
+* Refine Plankton energy recovery (make it dependent on being near the surface).
+* Start implementing the Snail.
+* Start implementing the Fish.
+* Work on creature sensing/interactions (eating).
 
 Movment:
 * Add currents that push everything. Probably need to add weights to each segment to simulate this well?
@@ -28,4 +31,4 @@ Stretch / longer term:
 
 The UI elements that add segments to creatures aren't working. Let's just get rid of those buttons and replace them with a "creature examiner". When a creature is clicked, we should switch to "examine" mode, which keeps the creature always in view (maybe pinned in place, or our view is locked to it)
 
-When clicked, the creature 
+When clicked, there should be a display on a side of the screen with information about the creature, and an option to make the camera follow the center of the creature. "Center" should be one of the segments of the creature.

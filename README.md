@@ -44,7 +44,7 @@ In the end I finally got it working by going back to my initial approach of crea
 
 Another 4 hours. Roughly the same experience as the last session. I was paying less attention to the process this time compared to prior sessions. Lots of entering queries and not paying attention while it wrote out the responses. Unsurprisingly it had a lot of difficulty.
 
-I am continuing to use egui for the UI and Rapier as the physics engine. Cursor had suggested trying out Bevy (a game engine) in response to some prompts about improving physics. I gave it a try and the code worked on Desktop, but try as I might I couldn't get it to display anything in WebAssembly. I spent a while trying to get this to work but gave up and went back to egui+Rapier. I think I was generally expecting too much from it and giving it low effort descriptions of what I wanted it to do. Didn't make much progress.
+I am continuing to use egui for the UI and Rapier as the physics engine. Cursor had suggested trying out Bevy (a game engine) in response to some prompts about adding a camera, since Rapier and egui don't have a concept of a camera. I gave it a try and the code worked on Desktop, but try as I might I couldn't get it to display anything in WebAssembly. I spent a while trying to get this to work but gave up and went back to egui+Rapier. I think I was generally expecting too much from it and giving it low effort descriptions of what I wanted it to do. Didn't make much progress.
 
 I used about 100 Cursor queries.
 

@@ -1,9 +1,11 @@
 use eframe::egui;
 use rapier2d::prelude::*;
 use nalgebra::Vector2;
+use rand::Rng; // Import random number generator
 
 use crate::creatures::snake::Snake; // Keep for initialization
-use crate::creature::{Creature, CreatureState}; // Re-import CreatureState
+use crate::creatures::plankton::Plankton; // Import Plankton
+use crate::creature::Creature; // Remove CreatureState import
 
 // Constants for the simulation world
 const PIXELS_PER_METER: f32 = 50.0;
@@ -81,6 +83,8 @@ impl Default for SoftiesApp {
 
         // --- Create Creatures ---
         let mut creatures: Vec<Box<dyn Creature>> = Vec::new();
+        let mut creature_id_counter: u128 = 0;
+        let mut rng = rand::thread_rng(); // Initialize RNG
 
         // --- Create Snake ---
         let segment_radius = 5.0 / PIXELS_PER_METER;
@@ -90,17 +94,36 @@ impl Default for SoftiesApp {
             10, // Number of segments
             segment_spacing,
         );
-
-        // Spawn the snake (adjust initial y position)
-        let snake_id = creatures.len() as u128; // ID will be 0
         snake.spawn_rapier(
             &mut rigid_body_set,
             &mut collider_set,
             &mut impulse_joint_set,
-            Vector2::new(0.0, hh / 2.0), // Start in the upper half of the aquarium
-            snake_id, // Pass the ID
+            Vector2::new(0.0, hh / 2.0), // Start in the upper half
+            creature_id_counter,
         );
         creatures.push(Box::new(snake));
+        creature_id_counter += 1;
+
+        // --- Create Plankton ---
+        let num_plankton = 20;
+        let plankton_radius = 10.0 / PIXELS_PER_METER; // TEMPORARILY LARGER for visibility
+        for _ in 0..num_plankton {
+            let mut plankton = Plankton::new(plankton_radius);
+            // Random position
+            let margin = 1.0;
+            let initial_x = rng.gen_range((-hw + margin)..(hw - margin));
+            let initial_y = rng.gen_range((-hh + margin)..(hh - margin));
+            
+            plankton.spawn_rapier(
+                &mut rigid_body_set,
+                &mut collider_set,
+                &mut impulse_joint_set, // Pass joint set
+                Vector2::new(initial_x, initial_y),
+                creature_id_counter,
+            );
+            creatures.push(Box::new(plankton));
+            creature_id_counter += 1;
+        }
 
 
         Self {
@@ -117,7 +140,7 @@ impl Default for SoftiesApp {
             query_pipeline, // Store query pipeline
             physics_hooks: (),
             event_handler: (),
-            creatures, // Store the vec
+            creatures, // Store the vec containing snake and plankton
             view_center: Vector2::zeros(),
             zoom: 1.0,
             hovered_creature_id: None, // Initialize hover state
@@ -159,11 +182,18 @@ impl eframe::App for SoftiesApp {
 
         // Decide state and apply behavior (replaces simple actuation)
         for creature in &mut self.creatures {
+            // Pass world height for position checks (e.g., for plankton seeking surface)
+            let world_context = crate::creature::WorldContext {
+                world_height: WORLD_HEIGHT_METERS,
+                pixels_per_meter: PIXELS_PER_METER, // Also pass this now
+            };
+
             creature.update_state_and_behavior(
                 dt, 
                 &mut self.rigid_body_set, 
                 &mut self.impulse_joint_set,
                 &self.collider_set, // Pass collider set
+                &world_context, // Pass world context
             );
         }
 
@@ -252,6 +282,7 @@ impl eframe::App for SoftiesApp {
                     &world_to_screen, // Pass the closure
                     self.zoom,
                     is_hovered,
+                    PIXELS_PER_METER, // Pass the constant
                 );
             }
         });
