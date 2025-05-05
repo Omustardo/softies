@@ -50,3 +50,14 @@ I used about 100 Cursor queries.
 
 ## Day 4 (2025-05-04)
 
+About 3 hours in total, but I wasn't paying much attention and kept coming back to it while looking at other browser tabs. Maybe 1 solid hour?
+
+* Added propulsion so the snake moves forward when it moves.
+* I fixed the skin not being drawn. It got lost in the rapier->bevy->rapier refactor last time. Interestingly Cursor made the same error as last time, where it mistakenly drew a polygon connecting the head and the tail of the snake. Easy enough to fix this time.
+* I added a plankton creature. Its movement is all messed up right now, but it's a start.
+
+Only about 20 Cursor queries.
+
+## Day 5
+
+TODO

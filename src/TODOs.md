@@ -5,6 +5,9 @@ Bugs and necessary improvements:
 * Start implementing the Snail.
 * Start implementing the Fish.
 * Work on creature sensing/interactions (eating).
+* Refine Plankton DietType: In the Plankton::new constructor comments, we mentioned that DietType::Herbivore is a placeholder and perhaps a new "Photosynthesizer" type would be more appropriate. This could tie into the surface-dependent energy recovery, or perhaps there should specifically be a Light Emitter "creature" that actually raycasts to emit light?
+* Pass PIXELS_PER_METER Consistently: We noted in both the Snake and Plankton draw methods that we were passing pixels_per_meter as a parameter, but it originates from a constant in app.rs. We could perhaps pass it via the WorldContext or find a cleaner way to make it globally accessible to drawing functions if needed, removing the local TODO comments and the extra parameter in draw.
+* Generalize Creature Spawning: In app.rs, we currently have specific code for spawning the snake and then a loop for spawning plankton. As we add more creatures, generalizing this spawning process (e.g., using a config or a spawner system) might be beneficial.
 
 Movment:
 * Add currents that push everything. Probably need to add weights to each segment to simulate this well?
@@ -17,6 +20,7 @@ Creatures:
 * eels that live in the sand
 * fish. needs a fin on top and on the sides, with nice flowing animation. Need a way for it to turn to the sides.
 * remora (sticks to larger creatures)
+* snail (sticks to wall, has a hard shell that isn't edible)
 * lizard / salamander. Something with legs.
 
 Stretch / longer term:
