@@ -252,27 +252,140 @@ impl eframe::App for SoftiesApp {
                 };
 
                 let is_hovered = self.hovered_creature_id == Some(id);
+                let screen_radius = creature.drawing_radius() * PIXELS_PER_METER * self.zoom;
 
-                for handle in creature.get_rigid_body_handles() {
-                    if let Some(body) = self.rigid_body_set.get(*handle) {
-                        let pos = body.translation();
-                        let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
-                        let screen_radius = creature.drawing_radius() * PIXELS_PER_METER * self.zoom;
+                // Get body handles
+                let handles = creature.get_rigid_body_handles();
+                if handles.is_empty() { continue; }
 
-                        // Add highlighting effect
+                // Special drawing for Snakes (skin)
+                if creature.type_name() == "Snake" && handles.len() >= 2 {
+                    let mut world_positions: Vec<Vector2<f32>> = Vec::with_capacity(handles.len());
+                    for handle in handles {
+                        if let Some(body) = self.rigid_body_set.get(*handle) {
+                            world_positions.push(*body.translation());
+                        } else {
+                            // Handle case where body might not be found (shouldn't usually happen)
+                            // Maybe add a default point or skip? For now, let's skip the whole snake.
+                            world_positions.clear(); // Clear to prevent drawing partial snake
+                            break;
+                        }
+                    }
+
+                    if world_positions.len() < 2 { continue; } // Need at least 2 points
+
+                    let mut skin_points_world: Vec<Vector2<f32>> = Vec::with_capacity(handles.len() * 2);
+                    let mut side1_points: Vec<Vector2<f32>> = Vec::with_capacity(handles.len());
+                    let mut side2_points: Vec<Vector2<f32>> = Vec::with_capacity(handles.len());
+                    let radius = creature.drawing_radius();
+
+                    // Calculate offset points
+                    for i in 0..world_positions.len() {
+                        let p_curr = world_positions[i];
+                        let direction = if i == 0 {
+                            (world_positions[1] - p_curr).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+                        } else if i == world_positions.len() - 1 {
+                             (p_curr - world_positions[i-1]).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+                        } else {
+                            // Average direction using neighbors
+                            ((world_positions[i+1] - world_positions[i-1]) / 2.0).try_normalize(1e-6).unwrap_or_else(|| {
+                                // Fallback if neighbors are coincident
+                                (world_positions[i+1] - p_curr).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+                            })
+                        };
+
+                        let perpendicular = Vector2::new(-direction.y, direction.x);
+                        side1_points.push(p_curr + perpendicular * radius);
+                        side2_points.push(p_curr - perpendicular * radius);
+                    }
+
+                    // --- Draw skin as individual quadrilaterals --- 
+                    for i in 0..(world_positions.len() - 1) {
+                        let quad_world = [
+                            side1_points[i],
+                            side1_points[i+1],
+                            side2_points[i+1],
+                            side2_points[i],
+                        ];
+
+                        let quad_screen: Vec<egui::Pos2> = quad_world
+                            .into_iter()
+                            .map(|wp| world_to_screen(wp))
+                            .collect();
+
+                        if quad_screen.len() == 4 { // Ensure we have 4 points
+                            if is_hovered {
+                                // Draw highlight outline for this segment
+                                painter.add(egui::Shape::convex_polygon(
+                                    quad_screen.clone(),
+                                    egui::Color32::TRANSPARENT,
+                                    egui::Stroke::new(screen_radius * 0.4, egui::Color32::WHITE),
+                                ));
+                            }
+                            // Draw the main skin segment
+                            painter.add(egui::Shape::convex_polygon(
+                                quad_screen,
+                                base_color,
+                                egui::Stroke::NONE,
+                            ));
+                        }
+                    }
+                    
+                    // --- Old single polygon drawing (commented out/removed) ---
+                    /*
+                    // Combine points: side1 forward, side2 backward
+                    skin_points_world.extend(side1_points);
+                    skin_points_world.extend(side2_points.into_iter().rev());
+
+                    // Convert world points to screen points
+                    let screen_points: Vec<egui::Pos2> = skin_points_world
+                        .into_iter()
+                        .map(|wp| world_to_screen(wp))
+                        .collect();
+
+                    // Draw the filled polygon (skin)
+                     if screen_points.len() >= 3 { // Need at least 3 points for a polygon
                         if is_hovered {
-                            painter.circle_filled(
-                                screen_pos,
-                                screen_radius * 1.2, // Slightly larger background circle
-                                egui::Color32::WHITE, 
-                            );
+                            // Draw highlight outline
+                            painter.add(egui::Shape::convex_polygon(
+                                screen_points.clone(),
+                                egui::Color32::TRANSPARENT, // Fill color (transparent for outline)
+                                egui::Stroke::new(screen_radius * 0.4, egui::Color32::WHITE), // Thicker white stroke
+                            ));
                         }
 
-                        painter.circle_filled(
-                            screen_pos,
-                            screen_radius, 
+                        // Draw the main skin
+                        painter.add(egui::Shape::convex_polygon(
+                            screen_points,
                             base_color, // Use state-based color
-                        );
+                            egui::Stroke::NONE, // No outline for the main body
+                        ));
+                    }
+                    */
+
+                } else { // Default drawing for non-snakes or snakes with < 2 segments
+                    // Draw circles for each segment (original method)
+                    for handle in creature.get_rigid_body_handles() {
+                        if let Some(body) = self.rigid_body_set.get(*handle) {
+                            let pos = body.translation();
+                            let screen_pos = world_to_screen(Vector2::new(pos.x, pos.y));
+                            //let screen_radius = creature.drawing_radius() * PIXELS_PER_METER * self.zoom; // Moved up
+
+                            // Add highlighting effect
+                            if is_hovered {
+                                painter.circle_filled(
+                                    screen_pos,
+                                    screen_radius * 1.2, // Slightly larger background circle
+                                    egui::Color32::WHITE,
+                                );
+                            }
+
+                            painter.circle_filled(
+                                screen_pos,
+                                screen_radius,
+                                base_color, // Use state-based color
+                            );
+                        }
                     }
                 }
             }

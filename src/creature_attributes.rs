@@ -24,7 +24,7 @@ pub struct CreatureAttributes {
 
     // Tags defining what this creature *can* eat
     pub prey_tags: Vec<String>,
-    // Tags defining what *can* eat this creature
+    // Tags defining what this creature is. Used for things like determining which things can eat this creature.
     pub self_tags: Vec<String>,
 }
 
