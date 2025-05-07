@@ -54,7 +54,7 @@ pub trait Creature {
     /// Applies custom physics forces (e.g., hydrodynamics) to the creature.
     /// Called after behavior updates, before the main physics step.
     /// Default implementation does nothing.
-    fn apply_custom_forces(&self, _rigid_body_set: &mut RigidBodySet) {
+    fn apply_custom_forces(&self, _rigid_body_set: &mut RigidBodySet, _world_context: &WorldContext) {
         // Default: Do nothing. Creatures needing special forces will override this.
     }
 

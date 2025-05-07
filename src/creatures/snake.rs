@@ -293,7 +293,7 @@ impl Creature for Snake {
     }
 
     /// Override the default apply_custom_forces for Snake.
-    fn apply_custom_forces(&self, rigid_body_set: &mut RigidBodySet) {
+    fn apply_custom_forces(&self, rigid_body_set: &mut RigidBodySet, _world_context: &WorldContext) {
         // --- Apply Hydrodynamic Forces --- 
         // These coefficients NEED TUNING!
         let perp_drag = 5.0;  // Significantly higher drag for sideways motion

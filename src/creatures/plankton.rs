@@ -110,29 +110,47 @@ impl Plankton {
     fn apply_buoyancy_and_drag(
         &self,
         rigid_body_set: &mut RigidBodySet,
+        world_context: &WorldContext, // Added world context
     ) {
         let buoyancy_force_magnitude_seeking = 0.5; // Slow rise
         let downward_force_magnitude_resting = 0.1; // Gentle sink
+        let ceiling_proximity_threshold = 0.5; // Meters from ceiling to start reducing buoyancy
+        let world_ceiling_y = world_context.world_height / 2.0;
 
         for handle in &self.segment_handles {
             if let Some(body) = rigid_body_set.get_mut(*handle) {
+                let current_y = body.translation().y;
+                let mut actual_upward_force = 0.0;
+
                 match self.current_state {
                     CreatureState::SeekingFood => {
-                        body.add_force(Vector2::new(0.0, buoyancy_force_magnitude_seeking), true);
+                        if current_y < world_ceiling_y - ceiling_proximity_threshold {
+                            actual_upward_force = buoyancy_force_magnitude_seeking;
+                        } else {
+                            // Near or at ceiling, reduce/nullify upward force to prevent pushing through
+                            actual_upward_force = buoyancy_force_magnitude_seeking * 
+                                ((world_ceiling_y - current_y) / ceiling_proximity_threshold).max(0.0).min(1.0);
+                        }
                     }
                     CreatureState::Wandering => {
-                        // Small buoyant force to roughly maintain depth, or slight rise
-                        body.add_force(Vector2::new(0.0, buoyancy_force_magnitude_seeking * 0.5), true);
+                        // Less aggressive rise, also capped near ceiling
+                        if current_y < world_ceiling_y - ceiling_proximity_threshold {
+                             actual_upward_force = buoyancy_force_magnitude_seeking * 0.5;
+                        } else {
+                            actual_upward_force = (buoyancy_force_magnitude_seeking * 0.5) * 
+                                ((world_ceiling_y - current_y) / ceiling_proximity_threshold).max(0.0).min(1.0);
+                        }
                     }
                     CreatureState::Resting | CreatureState::Idle => {
-                        // Apply a gentle downward force to sink
                         body.add_force(Vector2::new(0.0, -downward_force_magnitude_resting), true);
                     }
                     CreatureState::Fleeing => {
-                        // Potentially faster movement, or rely on impulses
+                        // Potentially faster movement, or rely on impulses. Could also be capped.
                     }
                 }
-                // Optional drag could be applied per-segment here too
+                if actual_upward_force > 0.0 {
+                    body.add_force(Vector2::new(0.0, actual_upward_force), true);
+                }
             }
         }
     }
@@ -218,9 +236,9 @@ impl Creature for Plankton {
         }
     }
 
-    fn apply_custom_forces(&self, rigid_body_set: &mut RigidBodySet) {
-        // Call the helper method
-        self.apply_buoyancy_and_drag(rigid_body_set); // Pass the set
+    fn apply_custom_forces(&self, rigid_body_set: &mut RigidBodySet, world_context: &WorldContext) {
+        // Call the helper method, now passing world_context
+        self.apply_buoyancy_and_drag(rigid_body_set, world_context);
     }
 
     fn draw(

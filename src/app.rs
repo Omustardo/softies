@@ -201,8 +201,12 @@ impl eframe::App for SoftiesApp {
         // This loop is now simpler. It calls the method on the Creature trait.
         // If a creature doesn't override the default empty method, nothing happens.
         // If it does (like Snake), its custom logic is executed.
+        let world_context_for_forces = crate::creature::WorldContext {
+            world_height: WORLD_HEIGHT_METERS,
+            pixels_per_meter: PIXELS_PER_METER,
+        };
         for creature in &self.creatures { // Need immutable borrow to call &self method
-            creature.apply_custom_forces(&mut self.rigid_body_set);
+            creature.apply_custom_forces(&mut self.rigid_body_set, &world_context_for_forces);
         }
 
         // --- Physics Step --- 
@@ -221,6 +225,42 @@ impl eframe::App for SoftiesApp {
             &self.physics_hooks,
             &self.event_handler,
         );
+
+        // --- Failsafe: Check for Escaped Creatures ---
+        let world_half_width = WORLD_WIDTH_METERS / 2.0;
+        let world_half_height = WORLD_HEIGHT_METERS / 2.0;
+        let bounds_padding = 1.0; // Allow creatures to be slightly outside before reset (e.g. half their size)
+
+        for (id, creature) in self.creatures.iter().enumerate() { // Keep iter() if not mutating creature directly
+            let mut is_out_of_bounds = false;
+            for &body_handle in creature.get_rigid_body_handles() {
+                if let Some(body) = self.rigid_body_set.get(body_handle) {
+                    let pos = body.translation();
+                    if pos.x.abs() > world_half_width + bounds_padding || 
+                       pos.y.abs() > world_half_height + bounds_padding {
+                        is_out_of_bounds = true;
+                        break; // No need to check other segments if one is out
+                    }
+                }
+            }
+
+            if is_out_of_bounds {
+                eprintln!(
+                    "WARN: Creature ID {} (Type: {}) escaped bounds and was reset!",
+                    id, 
+                    creature.type_name()
+                );
+                for &body_handle in creature.get_rigid_body_handles() {
+                    if let Some(body) = self.rigid_body_set.get_mut(body_handle) {
+                        body.set_translation(Vector2::zeros(), true);
+                        body.set_linvel(Vector2::zeros(), true);
+                        body.set_angvel(0.0, true);
+                    }
+                }
+                // If we wanted to turn it red, we'd need mutable access to the creature here:
+                // if let Some(c) = self.creatures.get_mut(id) { c.set_escaped_flag(true); }
+            }
+        }
 
         // --- UI Panel --- 
         egui::SidePanel::left("creature_list_panel")
