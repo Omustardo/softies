@@ -5,7 +5,7 @@ use rand::Rng; // Import random number generator
 
 use crate::creatures::snake::Snake; // Keep for initialization
 use crate::creatures::plankton::Plankton; // Import Plankton
-use crate::creature::Creature; // Remove CreatureState import
+use crate::creature::{Creature, CreatureInfo, WorldContext}; // Added CreatureInfo and WorldContext explicitly
 
 // Constants for the simulation world
 const PIXELS_PER_METER: f32 = 50.0;
@@ -157,43 +157,74 @@ impl eframe::App for SoftiesApp {
         let dt = ctx.input(|i| i.stable_dt);
 
         // --- Creature Updates --- 
-        // Determine if the snake is resting (e.g., head velocity is low)
-        // Re-enable resting check
-        let resting_velocity_threshold = 0.1; // Meters per second
-        // Find the head velocity of the *first* creature for now (simplification)
-        // TODO: Check resting state for each creature individually
-        let is_snake_resting = 
-            if let Some(creature) = self.creatures.first() { // Check if creatures exist
-                if let Some(head_handle) = creature.get_rigid_body_handles().first() {
-                    if let Some(head_body) = self.rigid_body_set.get(*head_handle) {
-                        head_body.linvel().norm() < resting_velocity_threshold
-                    } else { false } // Body not found
-                } else { false } // No handles
-            } else { false }; // No creatures
-        // Remove the forced false value
-        // let is_snake_resting = false; // Force not resting for now 
+        // REMOVE a single is_snake_resting flag
+        // let resting_velocity_threshold = 0.1; // Meters per second
+        // let is_snake_resting = 
+        //     if let Some(creature) = self.creatures.first() { 
+        //         if let Some(head_handle) = creature.get_rigid_body_handles().first() {
+        //             if let Some(head_body) = self.rigid_body_set.get(*head_handle) {
+        //                 head_body.linvel().norm() < resting_velocity_threshold
+        //             } else { false } 
+        //         } else { false } 
+        //     } else { false }; 
 
         // Update passive stats (hunger, energy recovery)
         for creature in &mut self.creatures {
-            // Pass the actual resting state
-            // TODO: Pass individual resting state for each creature later
-            creature.attributes_mut().update_passive_stats(dt, is_snake_resting);
+            let is_this_creature_resting = creature.current_state() == crate::creature::CreatureState::Resting;
+            creature.attributes_mut().update_passive_stats(dt, is_this_creature_resting);
         }
 
-        // Decide state and apply behavior (replaces simple actuation)
-        for creature in &mut self.creatures {
-            // Pass world height for position checks (e.g., for plankton seeking surface)
-            let world_context = crate::creature::WorldContext {
-                world_height: WORLD_HEIGHT_METERS,
-                pixels_per_meter: PIXELS_PER_METER, // Also pass this now
+        // --- Prepare CreatureInfo vector --- 
+        let mut all_creatures_info: Vec<CreatureInfo> = Vec::with_capacity(self.creatures.len());
+        for (_index, creature) in self.creatures.iter().enumerate() {
+            // Use the creature's own id method
+            let creature_id = creature.id(); 
+            let type_name = creature.type_name();
+            let radius = creature.drawing_radius(); // Or a more specific interaction radius if different
+
+            // Get primary rigid body handle, position, and velocity
+            // For simplicity, assumes the first handle is the "primary" one for position/velocity.
+            let primary_body_handle = creature.get_rigid_body_handles().first().cloned().unwrap_or_else(RigidBodyHandle::invalid);
+            
+            let (position, velocity) = if primary_body_handle != RigidBodyHandle::invalid() {
+                if let Some(body) = self.rigid_body_set.get(primary_body_handle) {
+                    (*body.translation(), *body.linvel())
+                } else {
+                    (Vector2::zeros(), Vector2::zeros()) // Should not happen if handle is valid
+                }
+            } else {
+                (Vector2::zeros(), Vector2::zeros()) // Creature might not have body yet or error
             };
+
+            all_creatures_info.push(CreatureInfo {
+                id: creature_id,
+                creature_type_name: type_name,
+                primary_body_handle,
+                position,
+                velocity,
+                radius,
+            });
+        }
+
+        // Decide state and apply behavior
+        for creature in &mut self.creatures {
+            let world_context = WorldContext { // Reconstruct WorldContext here
+                world_height: WORLD_HEIGHT_METERS,
+                pixels_per_meter: PIXELS_PER_METER, 
+            };
+            
+            // Get the creature's own ID for the call
+            let own_id = creature.id();
 
             creature.update_state_and_behavior(
                 dt, 
+                own_id, // Pass the creature's own ID
                 &mut self.rigid_body_set, 
                 &mut self.impulse_joint_set,
-                &self.collider_set, // Pass collider set
-                &world_context, // Pass world context
+                &self.collider_set, 
+                &self.query_pipeline, // Pass the query pipeline
+                &all_creatures_info, // Pass the collected info about all creatures
+                &world_context,
             );
         }
 

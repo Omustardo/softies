@@ -1,4 +1,4 @@
-use rapier2d::prelude::{RigidBodyHandle, ImpulseJointHandle, RigidBodySet, ImpulseJointSet, ColliderSet};
+use rapier2d::prelude::{RigidBodyHandle, ImpulseJointHandle, RigidBodySet, ImpulseJointSet, ColliderSet, QueryPipeline};
 use nalgebra::Vector2; // Added for vector math in helper
 use eframe::egui; // Added for Painter in draw method
 
@@ -22,7 +22,22 @@ pub struct WorldContext {
     pub pixels_per_meter: f32,
 }
 
+/// Basic information about a creature, used for awareness by other creatures.
+#[derive(Debug, Clone)]
+pub struct CreatureInfo {
+    pub id: u128,
+    pub creature_type_name: &'static str,
+    pub primary_body_handle: RigidBodyHandle, // Or Option<RigidBodyHandle> if a creature might not have one temporarily
+    pub position: Vector2<f32>,
+    pub velocity: Vector2<f32>,
+    pub radius: f32, // General radius for interaction/sensing
+    // pub attributes: CreatureAttributes, // Consider if the full attributes are needed or just specific parts like size/tags
+}
+
 pub trait Creature {
+    // Return unique ID for this creature instance
+    fn id(&self) -> u128;
+
     // Return slices of Rapier handles
     fn get_rigid_body_handles(&self) -> &[RigidBodyHandle];
     fn get_joint_handles(&self) -> &[ImpulseJointHandle];
@@ -44,11 +59,13 @@ pub trait Creature {
     fn update_state_and_behavior(
         &mut self,
         dt: f32,
-        rigid_body_set: &mut RigidBodySet,
-        impulse_joint_set: &mut ImpulseJointSet,
-        collider_set: &ColliderSet,
-        world_context: &WorldContext, // Changed parameter
-        // Add other context later, e.g., sensing results: &SensingData
+        own_id: u128, // ID of the creature instance being updated
+        rigid_body_set: &mut RigidBodySet, // Still mutable for direct actions by self
+        impulse_joint_set: &mut ImpulseJointSet, // Still mutable for direct actions by self
+        collider_set: &ColliderSet, // Immutable for querying others
+        query_pipeline: &QueryPipeline, // For spatial queries
+        all_creatures_info: &Vec<CreatureInfo>, // Info about all other creatures
+        world_context: &WorldContext,
     );
 
     /// Applies custom physics forces (e.g., hydrodynamics) to the creature.

@@ -3,10 +3,227 @@ use nalgebra::{Vector2, Point2};
 use eframe::egui; // Keep for draw method later
 use rand::Rng;
 
-use crate::creature::{Creature, CreatureState, WorldContext};
+use crate::creature::{Creature, CreatureState, WorldContext, CreatureInfo};
 use crate::creature_attributes::{CreatureAttributes, DietType};
 
+/// Simplified info for boid calculation
+#[derive(Debug, Clone, Copy)]
+pub struct BoidNeighborInfo {
+    pub position: Vector2<f32>,
+    pub velocity: Vector2<f32>,
+}
+
+/// Calculates the combined boid steering impulse.
+pub fn calculate_boid_steering_impulse(
+    self_position: Vector2<f32>,
+    // self_velocity: Vector2<f32>, // Not directly used in current impulse-based boids, but could be for target velocity approaches
+    neighbors_info: &[BoidNeighborInfo],
+    _perception_radius: f32, // Prefixed with underscore
+    separation_distance: f32,
+    cohesion_strength: f32,
+    separation_strength: f32,
+    alignment_strength: f32,
+) -> Vector2<f32> {
+    let mut separation_force_accumulator = Vector2::zeros();
+    let mut alignment_velocity_accumulator = Vector2::zeros();
+    let mut cohesion_position_accumulator = Vector2::zeros();
+    let local_flockmates_count = neighbors_info.len();
+
+    if local_flockmates_count == 0 {
+        return Vector2::zeros();
+    }
+
+    for neighbor in neighbors_info {
+        cohesion_position_accumulator += neighbor.position;
+        alignment_velocity_accumulator += neighbor.velocity;
+
+        let distance = (neighbor.position - self_position).norm();
+        if distance < separation_distance && distance > 0.0 { 
+            let away_vector = (self_position - neighbor.position).normalize(); // direction from neighbor to self
+            separation_force_accumulator += away_vector / distance; 
+        }
+    }
+
+    let mut boid_impulse = Vector2::zeros();
+
+    // Cohesion
+    let cohesion_target = cohesion_position_accumulator / (local_flockmates_count as f32);
+    let cohesion_force = (cohesion_target - self_position).try_normalize(1e-6).unwrap_or_else(Vector2::zeros) * cohesion_strength;
+    boid_impulse += cohesion_force;
+
+    // Alignment
+    let alignment_target_velocity = alignment_velocity_accumulator / (local_flockmates_count as f32);
+    let alignment_force = (alignment_target_velocity.try_normalize(1e-6).unwrap_or_else(Vector2::zeros)) * alignment_strength;
+    boid_impulse += alignment_force;
+
+    // Separation
+    if separation_force_accumulator.norm_squared() > 0.0 { // Only apply if there was a separation candidate
+        let separation_force = separation_force_accumulator.normalize() * separation_strength;
+        boid_impulse += separation_force;
+    }
+    
+    // The final impulse can be quite strong; consider clamping or scaling if needed, or applying as a force over dt.
+    // For now, returning raw impulse sum.
+    boid_impulse
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Import items from the parent module (plankton.rs)
+    use nalgebra::Vector2;
+
+    const DEFAULT_PERCEPTION_RADIUS: f32 = 10.0;
+    const DEFAULT_SEPARATION_DISTANCE: f32 = 2.0;
+    const DEFAULT_COHESION_STRENGTH: f32 = 0.1;
+    const DEFAULT_SEPARATION_STRENGTH: f32 = 0.2;
+    const DEFAULT_ALIGNMENT_STRENGTH: f32 = 0.05;
+
+    // Helper to compare float vectors with a tolerance
+    fn assert_vec_approx_eq(a: Vector2<f32>, b: Vector2<f32>, epsilon: f32) {
+        assert!((a.x - b.x).abs() < epsilon, "x component mismatch: {} vs {}", a.x, b.x);
+        assert!((a.y - b.y).abs() < epsilon, "y component mismatch: {} vs {}", a.y, b.y);
+    }
+
+    #[test]
+    fn test_boids_no_neighbors() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbors = [];
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            DEFAULT_SEPARATION_DISTANCE, 
+            DEFAULT_COHESION_STRENGTH, 
+            DEFAULT_SEPARATION_STRENGTH, 
+            DEFAULT_ALIGNMENT_STRENGTH
+        );
+        assert_vec_approx_eq(impulse, Vector2::zeros(), 1e-6);
+    }
+
+    #[test]
+    fn test_boids_one_neighbor_cohesion() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbors = [BoidNeighborInfo { position: Vector2::new(5.0, 0.0), velocity: Vector2::zeros() }];
+        // With only cohesion, alignment=0, separation=0
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            100.0, // Ensure no separation
+            1.0,   // Strong cohesion
+            0.0,   // No separation
+            0.0    // No alignment
+        );
+        // Should move towards the neighbor (positive x)
+        assert!(impulse.x > 0.0, "Cohesion impulse should be positive X");
+        assert_vec_approx_eq(impulse, Vector2::new(1.0, 0.0), 1e-6); // Cohesion target is (5,0), dir (1,0) * strength 1.0
+    }
+
+    #[test]
+    fn test_boids_one_neighbor_alignment() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbors = [BoidNeighborInfo { position: Vector2::new(5.0, 0.0), velocity: Vector2::new(0.0, 1.0) }];
+        // With only alignment
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            100.0, // Ensure no separation
+            0.0,   // No cohesion
+            0.0,   // No separation
+            1.0    // Strong alignment
+        );
+        // Should align with neighbor's velocity (positive y)
+        assert!(impulse.y > 0.0, "Alignment impulse should be positive Y");
+        assert_vec_approx_eq(impulse, Vector2::new(0.0, 1.0), 1e-6); // Align target is (0,1), dir (0,1) * strength 1.0
+    }
+
+    #[test]
+    fn test_boids_one_neighbor_separation_too_close() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbor_pos = Vector2::new(1.0, 0.0); // Within separation distance of 2.0
+        let neighbors = [BoidNeighborInfo { position: neighbor_pos, velocity: Vector2::zeros() }];
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            DEFAULT_SEPARATION_DISTANCE, // 2.0
+            0.0,   // No cohesion
+            1.0,   // Strong separation
+            0.0    // No alignment
+        );
+        // Should move away from the neighbor (negative x)
+        assert!(impulse.x < 0.0, "Separation impulse should be negative X");
+        // Expected direction is (-1,0). Strength is 1.0. 
+        // The separation accumulator would be (-1,0)/distance = (-1,0)/1.0 = (-1,0)
+        // Normalized (-1,0) * strength 1.0 = (-1.0, 0.0)
+        assert_vec_approx_eq(impulse, Vector2::new(-1.0, 0.0), 1e-6);
+    }
+
+    #[test]
+    fn test_boids_one_neighbor_separation_far_enough() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbor_pos = Vector2::new(3.0, 0.0); // Outside separation distance of 2.0
+        let neighbors = [BoidNeighborInfo { position: neighbor_pos, velocity: Vector2::zeros() }];
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            DEFAULT_SEPARATION_DISTANCE, // 2.0
+            0.0,   // No cohesion
+            1.0,   // Strong separation
+            0.0    // No alignment
+        );
+        // No separation force should be applied if neighbor is far enough
+        assert_vec_approx_eq(impulse, Vector2::zeros(), 1e-6);
+    }
+
+     #[test]
+    fn test_boids_two_neighbors_balanced_cohesion() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbors = [
+            BoidNeighborInfo { position: Vector2::new(5.0, 0.0), velocity: Vector2::zeros() },
+            BoidNeighborInfo { position: Vector2::new(-5.0, 0.0), velocity: Vector2::zeros() },
+        ];
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            100.0, // Ensure no separation
+            1.0,   // Strong cohesion
+            0.0,   // No separation
+            0.0    // No alignment
+        );
+        // Cohesion target is (0,0), so impulse should be zero
+        assert_vec_approx_eq(impulse, Vector2::zeros(), 1e-6);
+    }
+
+    #[test]
+    fn test_boids_two_neighbors_offset_cohesion_alignment() {
+        let self_pos = Vector2::new(0.0, 0.0);
+        let neighbors = [
+            BoidNeighborInfo { position: Vector2::new(2.0, 1.0), velocity: Vector2::new(1.0, 0.0) },
+            BoidNeighborInfo { position: Vector2::new(2.0, -1.0), velocity: Vector2::new(1.0, 0.0) },
+        ];
+        // Using default strengths, separation distance large enough not to trigger.
+        let impulse = calculate_boid_steering_impulse(
+            self_pos, 
+            &neighbors, 
+            DEFAULT_PERCEPTION_RADIUS, 
+            1.0, // Separation distance small enough not to trigger for these positions
+            DEFAULT_COHESION_STRENGTH, 
+            DEFAULT_SEPARATION_STRENGTH, 
+            DEFAULT_ALIGNMENT_STRENGTH
+        );
+        // Cohesion: target is (2.0, 0.0). Normalized dir (1.0, 0.0). Force = (1,0) * 0.1 = (0.1, 0.0)
+        // Alignment: target vel is (1.0, 0.0). Normalized dir (1.0, 0.0). Force = (1,0) * 0.05 = (0.05, 0.0)
+        // Total expected: (0.15, 0.0)
+        assert_vec_approx_eq(impulse, Vector2::new(0.15, 0.0), 1e-6);
+    }
+}
+
 pub struct Plankton {
+    id: u128,
     segment_handles: Vec<RigidBodyHandle>, // Changed from single handle
     joint_handle: Option<ImpulseJointHandle>, // Added joint handle
     attributes: CreatureAttributes,
@@ -33,6 +250,7 @@ impl Plankton {
         );
 
         Self {
+            id: 0,
             segment_handles: Vec::with_capacity(2),
             joint_handle: None,
             attributes,
@@ -51,6 +269,7 @@ impl Plankton {
         initial_position: Vector2<f32>,
         creature_id: u128,
     ) {
+        self.id = creature_id;
         self.segment_handles.clear();
         self.joint_handle = None;
 
@@ -110,46 +329,47 @@ impl Plankton {
     fn apply_buoyancy_and_drag(
         &self,
         rigid_body_set: &mut RigidBodySet,
-        world_context: &WorldContext, // Added world context
+        world_context: &WorldContext, 
     ) {
-        let buoyancy_force_magnitude_seeking = 0.5; // Slow rise
-        let downward_force_magnitude_resting = 0.1; // Gentle sink
-        let ceiling_proximity_threshold = 0.5; // Meters from ceiling to start reducing buoyancy
-        let world_ceiling_y = world_context.world_height / 2.0;
+        let buoyancy_force_seeking_food_strong_up = 1.0; // When far below target
+        let buoyancy_force_seeking_food_neutral_in_zone = 0.8; // To counteract gravity_scale(0.8) and make them hover
+        let downward_force_seeking_food_strong_down = -1.0; // Increased magnitude for pushing down from ceiling
+
+        let downward_force_resting = 0.05;
+        let sustaining_upward_force_wandering = 0.75; 
+
+        let light_zone_target_min_y = world_context.world_height * 0.05; // e.g. stay above 5% of world height from center
+        let light_zone_target_max_y = world_context.world_height * 0.35; // e.g. stay below 35% of world height from center
 
         for handle in &self.segment_handles {
             if let Some(body) = rigid_body_set.get_mut(*handle) {
                 let current_y = body.translation().y;
-                let mut actual_upward_force = 0.0;
+                let mut force_to_apply_y = 0.0;
 
                 match self.current_state {
                     CreatureState::SeekingFood => {
-                        if current_y < world_ceiling_y - ceiling_proximity_threshold {
-                            actual_upward_force = buoyancy_force_magnitude_seeking;
+                        if current_y < light_zone_target_min_y {
+                            force_to_apply_y = buoyancy_force_seeking_food_strong_up;
+                        } else if current_y > light_zone_target_max_y {
+                            // Stronger push down if they are too high
+                            force_to_apply_y = downward_force_seeking_food_strong_down; 
                         } else {
-                            // Near or at ceiling, reduce/nullify upward force to prevent pushing through
-                            actual_upward_force = buoyancy_force_magnitude_seeking * 
-                                ((world_ceiling_y - current_y) / ceiling_proximity_threshold).max(0.0).min(1.0);
+                            // They are IN the desired light zone, make them hover or be neutral
+                            force_to_apply_y = buoyancy_force_seeking_food_neutral_in_zone;
                         }
                     }
-                    CreatureState::Wandering => {
-                        // Less aggressive rise, also capped near ceiling
-                        if current_y < world_ceiling_y - ceiling_proximity_threshold {
-                             actual_upward_force = buoyancy_force_magnitude_seeking * 0.5;
-                        } else {
-                            actual_upward_force = (buoyancy_force_magnitude_seeking * 0.5) * 
-                                ((world_ceiling_y - current_y) / ceiling_proximity_threshold).max(0.0).min(1.0);
-                        }
+                    CreatureState::Wandering | CreatureState::Idle => {
+                        force_to_apply_y = sustaining_upward_force_wandering;
                     }
-                    CreatureState::Resting | CreatureState::Idle => {
-                        body.add_force(Vector2::new(0.0, -downward_force_magnitude_resting), true);
+                    CreatureState::Resting => {
+                        // Note: Rapier applies gravity. This adds MORE downward force.
+                        body.add_force(Vector2::new(0.0, -downward_force_resting), true);
+                        // No direct force_to_apply_y here, already handled.
                     }
-                    CreatureState::Fleeing => {
-                        // Potentially faster movement, or rely on impulses. Could also be capped.
-                    }
+                    CreatureState::Fleeing => {}
                 }
-                if actual_upward_force > 0.0 {
-                    body.add_force(Vector2::new(0.0, actual_upward_force), true);
+                if force_to_apply_y != 0.0 { // Apply if not zero
+                    body.add_force(Vector2::new(0.0, force_to_apply_y), true);
                 }
             }
         }
@@ -157,6 +377,10 @@ impl Plankton {
 }
 
 impl Creature for Plankton {
+    fn id(&self) -> u128 {
+        self.id
+    }
+
     fn get_rigid_body_handles(&self) -> &[RigidBodyHandle] {
         &self.segment_handles // Return the vec slice
     }
@@ -188,48 +412,153 @@ impl Creature for Plankton {
 
     fn update_state_and_behavior(
         &mut self,
-        _dt: f32,
+        dt: f32,
+        own_id: u128,
         rigid_body_set: &mut RigidBodySet,
-        _impulse_joint_set: &mut ImpulseJointSet,
-        _collider_set: &ColliderSet,
+        _impulse_joint_set: &mut ImpulseJointSet, // Prefixed with underscore
+        collider_set: &ColliderSet,
+        query_pipeline: &QueryPipeline,
+        all_creatures_info: &Vec<CreatureInfo>,
         world_context: &WorldContext,
     ) {
-        // State transition logic - use primary segment for position check
-        let primary_handle = self.segment_handles.get(0).cloned().unwrap_or_else(RigidBodyHandle::invalid);
-        let current_y = rigid_body_set
-            .get(primary_handle)
-            .map_or(0.0, |b| b.translation().y);
+        // Boids parameters (can be tuned)
+        let perception_radius: f32 = self.primary_radius * 15.0; // How far plankton can "see"
+        let separation_distance: f32 = self.primary_radius * 4.0; // Increased slightly
+        let cohesion_strength: f32 = 0.15; // Increased from 0.005
+        let separation_strength: f32 = 0.25; // Increased from 0.05
+        let alignment_strength: f32 = 0.1;  
 
-        let top_zone_threshold = world_context.world_height * 0.3;
-        let energy_threshold_wandering = self.attributes.max_energy * 0.8;
-        let next_state = if self.attributes.is_tired() {
-            CreatureState::Resting
+        let self_primary_handle = self.segment_handles.get(0).cloned().unwrap_or_else(RigidBodyHandle::invalid);
+        let self_position = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.translation());
+        let _self_velocity = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.linvel()); // Prefixed with underscore
+
+        // --- Sensing Phase using QueryPipeline --- 
+        let mut boid_neighbors: Vec<BoidNeighborInfo> = Vec::new();
+        let perception_shape = Ball::new(perception_radius);
+        let perception_shape_pos = Isometry::new(self_position, 0.0);
+        // Filter to interact only with colliders that are creatures (user_data != u128::MAX)
+        // and are on a group that creatures can interact with (e.g. group 1)
+        // Assuming creatures are on group 1 and can interact with group 1.
+        // Walls are u128::MAX, so they won't be processed here unless filter is changed.
+        let interaction_filter = InteractionGroups::new(Group::GROUP_1, Group::GROUP_1);
+        let query_filter = QueryFilter::new().groups(interaction_filter).exclude_rigid_body(self_primary_handle);
+
+        query_pipeline.intersections_with_shape(
+            rigid_body_set,
+            collider_set,
+            &perception_shape_pos,
+            &perception_shape,
+            query_filter,
+            |intersecting_collider_handle| {
+                let intersecting_collider = match collider_set.get(intersecting_collider_handle) {
+                    Some(c) => c,
+                    None => return true, // Should not happen, continue query
+                };
+
+                let creature_id_from_collider = intersecting_collider.user_data;
+                if creature_id_from_collider == u128::MAX { return true; } // Skip walls or non-creature objects
+                if creature_id_from_collider == own_id { return true; } // Should be excluded by query_filter, but double check
+
+                // Find this creature in all_creatures_info
+                if let Some(other_creature_info) = all_creatures_info.iter().find(|info| info.id == creature_id_from_collider) {
+                    if other_creature_info.creature_type_name == "Plankton" {
+                        // Add to list for boid calculation
+                        boid_neighbors.push(BoidNeighborInfo {
+                            position: other_creature_info.position,
+                            velocity: other_creature_info.velocity,
+                        });
+                    }
+                    // Future: else if other_creature_info.creature_type_name == "Snake" { /* Flee from snake */ }
+                }
+                true // Continue the query
+            },
+        );
+
+        // Calculate Boid Impulse by calling the new function
+        let boid_impulse = calculate_boid_steering_impulse(
+            self_position,
+            // self_velocity, // Pass if the function needs it
+            &boid_neighbors,
+            perception_radius,
+            separation_distance,
+            cohesion_strength,
+            separation_strength,
+            alignment_strength
+        );
+
+        // State transition logic - use primary segment for position check
+        let current_y = self_position.y;
+
+        // Define energy thresholds for state changes
+        let energy_critically_low_threshold = self.attributes.max_energy * 0.35; 
+        let energy_comfortable_threshold = self.attributes.max_energy * 0.65; 
+
+        // Define the "light zone" for SeekingFood behavior reference
+        let light_zone_ideal_min_y = world_context.world_height * 0.1; 
+        let light_zone_ideal_max_y = world_context.world_height * 0.45; // Slightly below absolute ceiling for safety
+
+        let mut next_state = self.current_state;
+
+        if self.attributes.is_tired() { 
+            next_state = CreatureState::Resting;
         } else {
-            if current_y < top_zone_threshold {
-                CreatureState::SeekingFood
-            } else if current_y >= top_zone_threshold && self.attributes.energy >= energy_threshold_wandering {
-                CreatureState::Wandering
-            } else {
-                CreatureState::SeekingFood
+            match self.current_state {
+                CreatureState::Resting => {
+                    if self.attributes.energy >= energy_comfortable_threshold {
+                        next_state = CreatureState::Wandering; 
+                    } else if self.attributes.energy >= energy_critically_low_threshold {
+                        next_state = CreatureState::SeekingFood;
+                    }
+                }
+                CreatureState::Wandering => {
+                    if self.attributes.energy < energy_critically_low_threshold {
+                        next_state = CreatureState::SeekingFood; 
+                    }
+                }
+                CreatureState::SeekingFood => {
+                    if self.attributes.energy >= energy_comfortable_threshold {
+                         // Only switch to wandering if energy is high AND they are somewhat in a good spot
+                         // This prevents them from immediately leaving the light zone if they just arrived.
+                        if current_y >= light_zone_ideal_min_y {
+                            next_state = CreatureState::Wandering;
+                        }
+                    }
+                }
+                CreatureState::Idle | CreatureState::Fleeing => { 
+                    if self.attributes.energy < energy_critically_low_threshold {
+                        next_state = CreatureState::SeekingFood;
+                    } else {
+                        next_state = CreatureState::Wandering;
+                    }
+                }
             }
-        };
+        }
         self.current_state = next_state;
+
 
         // --- Execute Behavior based on State --- 
         match self.current_state {
             CreatureState::Wandering => {
-                // Apply small random impulse to the primary segment
-                 if let Some(body) = rigid_body_set.get_mut(primary_handle) {
-                    let mut rng = rand::thread_rng();
-                    let impulse_strength = 0.05;
-                    let impulse = Vector2::new(
-                        rng.gen_range(-impulse_strength..impulse_strength),
-                        rng.gen_range(-impulse_strength..impulse_strength)
-                    );
-                    body.apply_impulse(impulse, true);
+                if let Some(body) = rigid_body_set.get_mut(self_primary_handle) {
+                    if self_primary_handle != RigidBodyHandle::invalid() { 
+                        let mut rng = rand::thread_rng();
+                        let impulse_strength = 0.02; 
+                        let random_impulse = Vector2::new(
+                            rng.gen_range(-impulse_strength..impulse_strength),
+                            rng.gen_range(-impulse_strength..impulse_strength)
+                        );
+                        // Apply boid impulses along with random wandering
+                        body.apply_impulse(random_impulse + boid_impulse, true);
+                    }
                  }
             }
-            CreatureState::SeekingFood => { /* Buoyancy handles upward movement */ }
+            CreatureState::SeekingFood => { 
+                // Energy recovery for plankton happens here if in light zone
+                if current_y >= light_zone_ideal_min_y && current_y <= light_zone_ideal_max_y {
+                    self.attributes.energy = (self.attributes.energy + self.attributes.energy_recovery_rate * dt).min(self.attributes.max_energy);
+                }
+                // Buoyancy handles upward movement if needed (defined in apply_buoyancy_and_drag)
+            }
             CreatureState::Resting => { /* Buoyancy handles sinking */ }
             CreatureState::Idle => { /* Do nothing */}
             CreatureState::Fleeing => { /* Do nothing */}

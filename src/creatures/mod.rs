@@ -1,6 +1,5 @@
-pub mod snake;
-// Remove unused import comment - Already removed
-// pub use snake::Snake;
-
 pub mod plankton;
-pub use plankton::Plankton;
+pub mod snake;
+
+// pub use plankton::Plankton; // This line is to be removed or commented out
+pub use snake::Snake;

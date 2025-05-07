@@ -2,10 +2,11 @@ use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
 use eframe::egui; // Add egui import
 
-use crate::creature::{Creature, CreatureState, WorldContext}; // Add WorldContext import
+use crate::creature::{Creature, CreatureState, WorldContext, CreatureInfo}; // Add WorldContext and CreatureInfo import
 use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
 
 pub struct Snake {
+    id: u128, // Added creature ID field
     segment_handles: Vec<RigidBodyHandle>,
     joint_handles: Vec<ImpulseJointHandle>,
     pub segment_radius: f32, // Made public for drawing access in app.rs
@@ -34,6 +35,7 @@ impl Snake {
         );
 
         Self {
+            id: 0, // Default ID, will be overwritten in spawn_rapier
             segment_handles: Vec::with_capacity(segment_count),
             joint_handles: Vec::with_capacity(segment_count.saturating_sub(1)),
             segment_radius,
@@ -54,6 +56,7 @@ impl Snake {
         initial_position: Vector2<f32>,
         creature_id: u128, // Added creature ID
     ) {
+        self.id = creature_id; // Store the ID
         self.segment_handles.clear();
         self.joint_handles.clear();
 
@@ -180,6 +183,10 @@ impl Snake {
 }
 
 impl Creature for Snake {
+    fn id(&self) -> u128 {
+        self.id
+    }
+
     fn get_rigid_body_handles(&self) -> &[RigidBodyHandle] {
         &self.segment_handles
     }
@@ -212,10 +219,13 @@ impl Creature for Snake {
     fn update_state_and_behavior(
         &mut self,
         dt: f32,
-        _rigid_body_set: &mut RigidBodySet, // Prefix with underscore to silence warning
+        _own_id: u128, // Parameter added to match trait, underscore if not used yet
+        _rigid_body_set: &mut RigidBodySet, 
         impulse_joint_set: &mut ImpulseJointSet,
-        _collider_set: &ColliderSet, // Added, prefixed with underscore for now
-        _world_context: &WorldContext, // Added parameter
+        _collider_set: &ColliderSet, // Parameter added
+        _query_pipeline: &QueryPipeline, // Parameter added
+        _all_creatures_info: &Vec<CreatureInfo>, // Parameter added
+        _world_context: &WorldContext, 
     ) {
         // --- State Transition Logic --- 
         let mut next_state = self.current_state; // Start with current state

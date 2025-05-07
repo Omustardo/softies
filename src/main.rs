@@ -1,10 +1,4 @@
-// Remove Bevy imports
-// use bevy::prelude::*;
-// use bevy_rapier2d::prelude::*;
-// use bevy_pancam::{PanCam, PanCamPlugin};
-// use crate::creatures::snake::Snake;
-
-use softies::app::SoftiesApp; // Import the app
+use softies::app::SoftiesApp; 
 
 // Keep module declarations, but main doesn't use them directly
 mod creature;
@@ -35,6 +29,3 @@ fn main() -> eframe::Result<()> {
         Box::new(|_cc| Box::new(SoftiesApp::default())),
     )
 }
-
-// Bevy setup function is no longer needed
-// fn setup(mut commands: Commands) { ... } 

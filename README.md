@@ -63,4 +63,10 @@ Cursor "Premium" Queries (session, cumulative): 20, 350
 
 ## Day 5
 
-TODO
+~1 hour of solid work.
+
+* Improved bounds checking (plankton were escaping!).
+* Started implementing boids to improve plankton movement.
+* Added an architecture doc. Might be helpful as a reference for the LLM.
+
+Queries: 10, 360
