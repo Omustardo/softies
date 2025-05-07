@@ -1,6 +1,6 @@
 use eframe::egui;
 use rapier2d::prelude::*;
-use nalgebra::Vector2;
+use nalgebra::{Vector2, Rotation2}; // Added Rotation2
 use rand::Rng; // Import random number generator
 
 use crate::creatures::snake::Snake; // Keep for initialization
@@ -106,7 +106,7 @@ impl Default for SoftiesApp {
 
         // --- Create Plankton ---
         let num_plankton = 20;
-        let plankton_radius = 10.0 / PIXELS_PER_METER; // TEMPORARILY LARGER for visibility
+        let plankton_radius = 4.0 / PIXELS_PER_METER; // Made smaller
         for _ in 0..num_plankton {
             let mut plankton = Plankton::new(plankton_radius);
             // Random position
@@ -270,6 +270,38 @@ impl eframe::App for SoftiesApp {
                 let screen_center = available_rect.center();
                 egui::pos2(screen_center.x + pixel_pt.x, screen_center.y - pixel_pt.y) // Invert Y here
             };
+
+            // --- Draw Walls ---
+            for (_collider_handle, collider) in self.collider_set.iter() { // Renamed handle to _collider_handle as it's not used directly here for fetching body
+                if collider.user_data == u128::MAX { // Corrected: user_data is a field
+                    if let Some(rigid_body_handle) = collider.parent() { // Get the parent RigidBodyHandle
+                        if let Some(body) = self.rigid_body_set.get(rigid_body_handle) { // Use the RigidBodyHandle
+                            let position = body.translation();
+                            let rotation_angle = body.rotation().angle();
+
+                            if let Some(cuboid) = collider.shape().as_cuboid() {
+                                let half_extents = cuboid.half_extents;
+                                // Helper to create rotated points
+                                let create_rotated_point = |x_offset, y_offset| -> Vector2<f32> {
+                                    Rotation2::new(rotation_angle) * Vector2::new(x_offset, y_offset)
+                                };
+
+                                let screen_points = [
+                                    world_to_screen(*position + create_rotated_point(-half_extents.x, -half_extents.y)),
+                                    world_to_screen(*position + create_rotated_point(half_extents.x, -half_extents.y)),
+                                    world_to_screen(*position + create_rotated_point(half_extents.x, half_extents.y)),
+                                    world_to_screen(*position + create_rotated_point(-half_extents.x, half_extents.y)),
+                                ];
+
+                                painter.add(egui::Shape::closed_line(
+                                    screen_points.to_vec(),
+                                    egui::Stroke::new(2.0, egui::Color32::GRAY)
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
 
             // Draw the creatures
             for (id, creature) in self.creatures.iter().enumerate() {

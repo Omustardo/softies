@@ -29,6 +29,8 @@ This used up almost all of my 150 "premium model queries" for Cursor's trial per
 
 The experience was a mix of initially being very pleased at things working, and then significant frustration with Cursor being unable to fix issues despite my varied prompts with different ways to approach it. In the end it made a segmented worm / snake that moved toward the mouse cursor. There were buttons to add and remove add segments, and a tree view to modify segments of the current creature. Each node was connected to one or two other nodes, and they had infill between them as a sort of skin. It worked well on both web and desktop. Definitely more than I could've done on my own in four hours unless it were in a language and with a library that I was familiar with. The downsides is that I don't know the codebase very well since I accepted changes without much review. If the LLM digs itself into a hole it'll be difficult for me to help it out. This early stage of the project is also the most likely for the LLM to do well with since everything easily fits into its context window and it's mostly boilerplate. I suspect things will only get harder for it.
 
+Cursor "Premium" Queries (session, cumulative): 150, 150
+
 ## Day 2 (2025-04-30)
 
 Another 4 hour session. I paid $20 for a month of Cursor. It's understandable, but also a shame that the free trial is so few queries. It's also a shame it doesn't support local LLMs. To avoid blowing through my Cursor quota in a couple sessions, I used Google's AI Studio and Claude alongside Cursor today. I think AI Studio (Gemini) is the best LLM for coding right now, but Claude has integration with Github so it's easier to select the relevant files as context, and it's still good. I also have a year-long subscription for Claude from a few months ago when it was the strongest model, so I may as well use it now.
@@ -39,6 +41,7 @@ I continued to work on this issue for the entire evening. For whatever reason, t
 
 In the end I finally got it working by going back to my initial approach of creating a basic Rapier demo and working off of that. The experience this evening was much less pleasant than the first session. It felt like far less got done, and I had to try a lot harder to make progress. I ended up using ~80 queries on Cursor (about half of what I used last session). Still, it did get something working in the end, so I can't complain too much. LLMs are still feeling magical, even if working with them can be frustrating and doesn't feel like I'm bettering myself.
 
+Cursor "Premium" Queries (session, cumulative): 80, 230
 
 ## Day 3 (2025-05-02)
 
@@ -46,7 +49,7 @@ Another 4 hours. Roughly the same experience as the last session. I was paying l
 
 I am continuing to use egui for the UI and Rapier as the physics engine. Cursor had suggested trying out Bevy (a game engine) in response to some prompts about adding a camera, since Rapier and egui don't have a concept of a camera. I gave it a try and the code worked on Desktop, but try as I might I couldn't get it to display anything in WebAssembly. I spent a while trying to get this to work but gave up and went back to egui+Rapier. I think I was generally expecting too much from it and giving it low effort descriptions of what I wanted it to do. Didn't make much progress.
 
-I used about 100 Cursor queries.
+Cursor "Premium" Queries (session, cumulative): 100, 330
 
 ## Day 4 (2025-05-04)
 
@@ -56,7 +59,7 @@ About 3 hours in total, but I wasn't paying much attention and kept coming back 
 * I fixed the skin not being drawn. It got lost in the rapier->bevy->rapier refactor last time. Interestingly Cursor made the same error as last time, where it mistakenly drew a polygon connecting the head and the tail of the snake. Easy enough to fix this time.
 * I added a plankton creature. Its movement is all messed up right now, but it's a start.
 
-Only about 20 Cursor queries.
+Cursor "Premium" Queries (session, cumulative): 20, 350
 
 ## Day 5
 

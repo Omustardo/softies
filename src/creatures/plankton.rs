@@ -62,7 +62,7 @@ impl Plankton {
             .linear_damping(5.0)
             .angular_damping(3.0) // Slightly more angular damping
             .gravity_scale(0.8)
-            .ccd_enabled(false)
+            .ccd_enabled(true) // Enabled CCD
             .build();
         let handle1 = rigid_body_set.insert(rb1);
         self.segment_handles.push(handle1);
@@ -81,7 +81,7 @@ impl Plankton {
             .linear_damping(5.0)
             .angular_damping(3.0)
             .gravity_scale(0.8)
-            .ccd_enabled(false)
+            .ccd_enabled(true) // Enabled CCD
             .build();
         let handle2 = rigid_body_set.insert(rb2);
         self.segment_handles.push(handle2);
@@ -111,19 +111,26 @@ impl Plankton {
         &self,
         rigid_body_set: &mut RigidBodySet,
     ) {
-        let buoyancy_force_magnitude = 4.0; // REDUCED buoyancy force significantly
-        let upward_force = Vector2::new(0.0, buoyancy_force_magnitude);
+        let buoyancy_force_magnitude_seeking = 0.5; // Slow rise
+        let downward_force_magnitude_resting = 0.1; // Gentle sink
 
         for handle in &self.segment_handles {
             if let Some(body) = rigid_body_set.get_mut(*handle) {
                 match self.current_state {
-                    CreatureState::SeekingFood | CreatureState::Wandering => {
-                        body.add_force(upward_force, true);
+                    CreatureState::SeekingFood => {
+                        body.add_force(Vector2::new(0.0, buoyancy_force_magnitude_seeking), true);
+                    }
+                    CreatureState::Wandering => {
+                        // Small buoyant force to roughly maintain depth, or slight rise
+                        body.add_force(Vector2::new(0.0, buoyancy_force_magnitude_seeking * 0.5), true);
                     }
                     CreatureState::Resting | CreatureState::Idle => {
-                        // No upward force
+                        // Apply a gentle downward force to sink
+                        body.add_force(Vector2::new(0.0, -downward_force_magnitude_resting), true);
                     }
-                    CreatureState::Fleeing => {}
+                    CreatureState::Fleeing => {
+                        // Potentially faster movement, or rely on impulses
+                    }
                 }
                 // Optional drag could be applied per-segment here too
             }
@@ -226,11 +233,11 @@ impl Creature for Plankton {
         pixels_per_meter: f32,
     ) {
         let base_color = match self.current_state() {
-            CreatureState::Idle => egui::Color32::from_rgb(150, 150, 150),
-            CreatureState::Wandering => egui::Color32::from_rgb(100, 150, 200),
-            CreatureState::Resting => egui::Color32::from_rgb(80, 80, 100),
-            CreatureState::SeekingFood => egui::Color32::from_rgb(150, 200, 150),
-            CreatureState::Fleeing => egui::Color32::TRANSPARENT,
+            CreatureState::Idle => egui::Color32::from_rgb(100, 120, 100), // Dull Greenish
+            CreatureState::Wandering => egui::Color32::from_rgb(120, 180, 120), // Soft Green
+            CreatureState::Resting => egui::Color32::from_rgb(80, 100, 80),   // Darker, Duller Green
+            CreatureState::SeekingFood => egui::Color32::from_rgb(150, 220, 150), // Brighter Green
+            CreatureState::Fleeing => egui::Color32::TRANSPARENT, // Keep transparent or choose panic color
         };
 
         let handles = self.get_rigid_body_handles();
