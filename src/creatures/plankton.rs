@@ -278,10 +278,10 @@ impl Plankton {
         // --- Create Primary Segment --- 
         let rb1 = RigidBodyBuilder::dynamic()
             .translation(initial_position)
-            .linear_damping(5.0)
-            .angular_damping(3.0) // Slightly more angular damping
-            .gravity_scale(0.8)
-            .ccd_enabled(true) // Enabled CCD
+            .linear_damping(20.0)
+            .angular_damping(10.0)
+            .gravity_scale(1.0)
+            .ccd_enabled(true)
             .build();
         let handle1 = rigid_body_set.insert(rb1);
         self.segment_handles.push(handle1);
@@ -297,10 +297,10 @@ impl Plankton {
         let pos2 = initial_position + Vector2::y() * segment_distance;
         let rb2 = RigidBodyBuilder::dynamic()
             .translation(pos2)
-            .linear_damping(5.0)
-            .angular_damping(3.0)
-            .gravity_scale(0.8)
-            .ccd_enabled(true) // Enabled CCD
+            .linear_damping(20.0)
+            .angular_damping(10.0)
+            .gravity_scale(1.0)
+            .ccd_enabled(true)
             .build();
         let handle2 = rigid_body_set.insert(rb2);
         self.segment_handles.push(handle2);
@@ -331,46 +331,52 @@ impl Plankton {
         rigid_body_set: &mut RigidBodySet,
         world_context: &WorldContext, 
     ) {
-        let buoyancy_force_seeking_food_strong_up = 1.0; // When far below target
-        let buoyancy_force_seeking_food_neutral_in_zone = 0.8; // To counteract gravity_scale(0.8) and make them hover
-        let downward_force_seeking_food_strong_down = -1.0; // Increased magnitude for pushing down from ceiling
+        // Constants for controlling net vertical acceleration (relative to world gravity magnitude of 1.0)
+        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_LOW: f32 = 0.2;    // Net upward acceleration if too low (Reduced from 0.5)
+        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_HIGH: f32 = -1.5;  // Net downward acceleration if too high
+        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_INZONE: f32 = 0.0; // Hover in the light zone
+        const NET_GRAVITY_ACCEL_SCALE_WANDERING: f32 = -0.8;         // Slow sink when wandering (Increased sink from -0.5)
+        const NET_GRAVITY_ACCEL_SCALE_RESTING: f32 = -1.0;           // Normal sink when resting (counteracts gravity_scale=1)
 
-        let downward_force_resting = 0.05;
-        let sustaining_upward_force_wandering = 0.75; 
-
-        let light_zone_target_min_y = world_context.world_height * 0.05; // e.g. stay above 5% of world height from center
-        let light_zone_target_max_y = world_context.world_height * 0.35; // e.g. stay below 35% of world height from center
+        let light_zone_target_min_y = world_context.world_height * 0.05;
+        let light_zone_target_max_y = world_context.world_height * 0.35;
 
         for handle in &self.segment_handles {
             if let Some(body) = rigid_body_set.get_mut(*handle) {
+                let body_mass = body.mass();
                 let current_y = body.translation().y;
-                let mut force_to_apply_y = 0.0;
-
-                match self.current_state {
+                
+                let target_net_accel_y_factor = match self.current_state {
                     CreatureState::SeekingFood => {
                         if current_y < light_zone_target_min_y {
-                            force_to_apply_y = buoyancy_force_seeking_food_strong_up;
+                            NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_LOW
                         } else if current_y > light_zone_target_max_y {
-                            // Stronger push down if they are too high
-                            force_to_apply_y = downward_force_seeking_food_strong_down; 
+                            NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_HIGH
                         } else {
-                            // They are IN the desired light zone, make them hover or be neutral
-                            force_to_apply_y = buoyancy_force_seeking_food_neutral_in_zone;
+                            NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_INZONE
                         }
                     }
                     CreatureState::Wandering | CreatureState::Idle => {
-                        force_to_apply_y = sustaining_upward_force_wandering;
+                        NET_GRAVITY_ACCEL_SCALE_WANDERING
                     }
                     CreatureState::Resting => {
-                        // Note: Rapier applies gravity. This adds MORE downward force.
-                        body.add_force(Vector2::new(0.0, -downward_force_resting), true);
-                        // No direct force_to_apply_y here, already handled.
+                        NET_GRAVITY_ACCEL_SCALE_RESTING
                     }
-                    CreatureState::Fleeing => {}
-                }
-                if force_to_apply_y != 0.0 { // Apply if not zero
-                    body.add_force(Vector2::new(0.0, force_to_apply_y), true);
-                }
+                    CreatureState::Fleeing => {
+                        // Default to wandering buoyancy for fleeing for now
+                        NET_GRAVITY_ACCEL_SCALE_WANDERING 
+                    }
+                };
+
+                // Calculate the required buoyancy force to achieve the target net acceleration.
+                // Net Force Y = Buoyancy Force Y + Gravitational Force Y
+                // Gravitational Force Y = body_mass * gravity_scale * world_gravity_y
+                // With gravity_scale = 1.0 and world_gravity_y = -1.0, Gravitational Force Y = -body_mass.
+                // So, target_net_accel_y_factor * body_mass = Buoyancy Force Y - body_mass
+                // Buoyancy Force Y = (target_net_accel_y_factor + 1.0) * body_mass
+                let buoyancy_force_y = (target_net_accel_y_factor + 1.0) * body_mass;
+                
+                body.add_force(Vector2::new(0.0, buoyancy_force_y), true);
             }
         }
     }
@@ -490,7 +496,7 @@ impl Creature for Plankton {
         let current_y = self_position.y;
 
         // Define energy thresholds for state changes
-        let energy_critically_low_threshold = self.attributes.max_energy * 0.35; 
+        let energy_critically_low_threshold = self.attributes.max_energy * 0.25; // Changed from 0.35 
         let energy_comfortable_threshold = self.attributes.max_energy * 0.65; 
 
         // Define the "light zone" for SeekingFood behavior reference
@@ -506,8 +512,6 @@ impl Creature for Plankton {
                 CreatureState::Resting => {
                     if self.attributes.energy >= energy_comfortable_threshold {
                         next_state = CreatureState::Wandering; 
-                    } else if self.attributes.energy >= energy_critically_low_threshold {
-                        next_state = CreatureState::SeekingFood;
                     }
                 }
                 CreatureState::Wandering => {

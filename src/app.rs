@@ -148,27 +148,10 @@ impl Default for SoftiesApp {
     }
 }
 
-impl eframe::App for SoftiesApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Set dark theme explicitly
-        ctx.set_visuals(egui::Visuals::dark());
-
-        // Get delta time
-        let dt = ctx.input(|i| i.stable_dt);
-
+impl SoftiesApp {
+    // Add the new tick_simulation method here, before eframe::App impl
+    pub fn tick_simulation(&mut self, dt: f32, ctx: &egui::Context) {
         // --- Creature Updates --- 
-        // REMOVE a single is_snake_resting flag
-        // let resting_velocity_threshold = 0.1; // Meters per second
-        // let is_snake_resting = 
-        //     if let Some(creature) = self.creatures.first() { 
-        //         if let Some(head_handle) = creature.get_rigid_body_handles().first() {
-        //             if let Some(head_body) = self.rigid_body_set.get(*head_handle) {
-        //                 head_body.linvel().norm() < resting_velocity_threshold
-        //             } else { false } 
-        //         } else { false } 
-        //     } else { false }; 
-
-        // Update passive stats (hunger, energy recovery)
         for creature in &mut self.creatures {
             let is_this_creature_resting = creature.current_state() == crate::creature::CreatureState::Resting;
             creature.attributes_mut().update_passive_stats(dt, is_this_creature_resting);
@@ -177,23 +160,19 @@ impl eframe::App for SoftiesApp {
         // --- Prepare CreatureInfo vector --- 
         let mut all_creatures_info: Vec<CreatureInfo> = Vec::with_capacity(self.creatures.len());
         for (_index, creature) in self.creatures.iter().enumerate() {
-            // Use the creature's own id method
             let creature_id = creature.id(); 
             let type_name = creature.type_name();
-            let radius = creature.drawing_radius(); // Or a more specific interaction radius if different
-
-            // Get primary rigid body handle, position, and velocity
-            // For simplicity, assumes the first handle is the "primary" one for position/velocity.
+            let radius = creature.drawing_radius();
             let primary_body_handle = creature.get_rigid_body_handles().first().cloned().unwrap_or_else(RigidBodyHandle::invalid);
             
             let (position, velocity) = if primary_body_handle != RigidBodyHandle::invalid() {
                 if let Some(body) = self.rigid_body_set.get(primary_body_handle) {
                     (*body.translation(), *body.linvel())
                 } else {
-                    (Vector2::zeros(), Vector2::zeros()) // Should not happen if handle is valid
+                    (Vector2::zeros(), Vector2::zeros())
                 }
             } else {
-                (Vector2::zeros(), Vector2::zeros()) // Creature might not have body yet or error
+                (Vector2::zeros(), Vector2::zeros())
             };
 
             all_creatures_info.push(CreatureInfo {
@@ -208,41 +187,37 @@ impl eframe::App for SoftiesApp {
 
         // Decide state and apply behavior
         for creature in &mut self.creatures {
-            let world_context = WorldContext { // Reconstruct WorldContext here
+            let world_context = WorldContext { 
                 world_height: WORLD_HEIGHT_METERS,
                 pixels_per_meter: PIXELS_PER_METER, 
             };
             
-            // Get the creature's own ID for the call
             let own_id = creature.id();
 
             creature.update_state_and_behavior(
                 dt, 
-                own_id, // Pass the creature's own ID
+                own_id, 
                 &mut self.rigid_body_set, 
                 &mut self.impulse_joint_set,
                 &self.collider_set, 
-                &self.query_pipeline, // Pass the query pipeline
-                &all_creatures_info, // Pass the collected info about all creatures
+                &self.query_pipeline,
+                &all_creatures_info, 
                 &world_context,
             );
         }
 
         // --- Apply Custom Physics Forces --- 
-        // This loop is now simpler. It calls the method on the Creature trait.
-        // If a creature doesn't override the default empty method, nothing happens.
-        // If it does (like Snake), its custom logic is executed.
         let world_context_for_forces = crate::creature::WorldContext {
             world_height: WORLD_HEIGHT_METERS,
             pixels_per_meter: PIXELS_PER_METER,
         };
-        for creature in &self.creatures { // Need immutable borrow to call &self method
+        for creature in &self.creatures { 
             creature.apply_custom_forces(&mut self.rigid_body_set, &world_context_for_forces);
         }
 
         // --- Physics Step --- 
         self.physics_pipeline.step(
-            &Vector2::new(0.0, -1.0), // Reduced gravity for water environment
+            &Vector2::new(0.0, -1.0), 
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,
@@ -252,7 +227,7 @@ impl eframe::App for SoftiesApp {
             &mut self.impulse_joint_set,
             &mut self.multibody_joint_set,
             &mut self.ccd_solver,
-            None, // No query pipeline yet
+            None, 
             &self.physics_hooks,
             &self.event_handler,
         );
@@ -260,9 +235,9 @@ impl eframe::App for SoftiesApp {
         // --- Failsafe: Check for Escaped Creatures ---
         let world_half_width = WORLD_WIDTH_METERS / 2.0;
         let world_half_height = WORLD_HEIGHT_METERS / 2.0;
-        let bounds_padding = 1.0; // Allow creatures to be slightly outside before reset (e.g. half their size)
+        let bounds_padding = 1.0;
 
-        for (id, creature) in self.creatures.iter().enumerate() { // Keep iter() if not mutating creature directly
+        for (id, creature) in self.creatures.iter().enumerate() { 
             let mut is_out_of_bounds = false;
             for &body_handle in creature.get_rigid_body_handles() {
                 if let Some(body) = self.rigid_body_set.get(body_handle) {
@@ -270,7 +245,7 @@ impl eframe::App for SoftiesApp {
                     if pos.x.abs() > world_half_width + bounds_padding || 
                        pos.y.abs() > world_half_height + bounds_padding {
                         is_out_of_bounds = true;
-                        break; // No need to check other segments if one is out
+                        break; 
                     }
                 }
             }
@@ -288,10 +263,31 @@ impl eframe::App for SoftiesApp {
                         body.set_angvel(0.0, true);
                     }
                 }
-                // If we wanted to turn it red, we'd need mutable access to the creature here:
-                // if let Some(c) = self.creatures.get_mut(id) { c.set_escaped_flag(true); }
             }
         }
+
+        // --- UI Panel and Drawing --- 
+        // These parts will remain in the eframe::App::update method
+        // as they interact directly with egui panels and painters.
+
+        // Request redraw for animation (can also be in tick_simulation if preferred)
+        // For now, let's keep it here, but it will be called by the main update loop.
+        // ctx.request_repaint(); 
+        // Actually, this should probably be in the main update function, 
+        // as tick_simulation is just about the logic.
+    }
+}
+
+impl eframe::App for SoftiesApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Set dark theme explicitly
+        ctx.set_visuals(egui::Visuals::dark());
+
+        // Get delta time
+        let dt = ctx.input(|i| i.stable_dt);
+
+        // Run the core simulation logic
+        self.tick_simulation(dt, ctx);
 
         // --- UI Panel --- 
         egui::SidePanel::left("creature_list_panel")
@@ -392,5 +388,51 @@ impl eframe::App for SoftiesApp {
 
         // Request redraw for animation
         ctx.request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Imports SoftiesApp, PIXELS_PER_METER, WORLD_HEIGHT_METERS etc.
+    use crate::creature::CreatureState;
+    use egui;   // For egui::Context and other egui types used in DummyFrame
+
+    #[test]
+    fn plankton_eventually_rests() {
+        let mut app = SoftiesApp::default();
+        let mock_ctx = egui::Context::default();
+
+        // Set initial energy of plankton to be low, so they become tired faster.
+        // Tired threshold is typically 20% of max_energy.
+        // Plankton max_energy is 20.0, so tired at <= 4.0.
+        // Start them at 22% (4.4 energy) so they are not immediately tired.
+        for creature_box in app.creatures.iter_mut() {
+            if creature_box.type_name() == "Plankton" {
+                let max_energy = creature_box.attributes().max_energy;
+                creature_box.attributes_mut().energy = max_energy * 0.22;
+            }
+        }
+
+        let mut resting_observed = false;
+        let iterations = 1000; // Number of simulation steps
+        let fixed_dt = 1.0 / 60.0; // Simulate at 60 FPS for the test
+
+        for i in 0..iterations {
+            app.tick_simulation(fixed_dt, &mock_ctx); // Call the new method
+
+            for creature in &app.creatures {
+                if creature.type_name() == "Plankton" {
+                    if creature.current_state() == CreatureState::Resting {
+                        println!("Plankton entered resting state at iteration {}", i);
+                        resting_observed = true;
+                        break;
+                    }
+                }
+            }
+            if resting_observed {
+                break;
+            }
+        }
+        assert!(resting_observed, "Plankton did not enter Resting state after {} iterations", iterations);
     }
 }

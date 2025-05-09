@@ -6,8 +6,8 @@ mod creatures;
 mod creature_attributes; // Re-enable this module for the binary crate
 
 // Constants for the aquarium
-const AQUARIUM_WIDTH: f32 = 1000.0;
-const AQUARIUM_HEIGHT: f32 = 800.0;
+const AQUARIUM_WIDTH: f32 = 500.0;
+const AQUARIUM_HEIGHT: f32 = 300.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 5.0;
 const CAMERA_BOUND_PADDING: f32 = 0.3; // 30% padding
