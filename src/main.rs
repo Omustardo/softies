@@ -13,8 +13,14 @@ const MAX_ZOOM: f32 = 5.0;
 const CAMERA_BOUND_PADDING: f32 = 0.3; // 30% padding
 
 fn main() -> eframe::Result<()> {
-    // Setup tracing for native panic info
-    tracing_subscriber::fmt::init();
+    // Setup tracing for native panic info with more verbose output
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_file(false)
+        .with_line_number(false)
+        .init();
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

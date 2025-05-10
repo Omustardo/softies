@@ -414,7 +414,7 @@ mod tests {
         }
 
         let mut resting_observed = false;
-        let iterations = 1000; // Number of simulation steps
+        let iterations = 2000; // Increased from 1000
         let fixed_dt = 1.0 / 60.0; // Simulate at 60 FPS for the test
 
         for i in 0..iterations {

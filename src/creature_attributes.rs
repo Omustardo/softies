@@ -60,6 +60,9 @@ impl CreatureAttributes {
         // Decrease satiety over time
         self.satiety = (self.satiety - self.metabolic_rate * dt).max(0.0);
 
+        // Passive metabolic energy drain (always occurs)
+        self.energy = (self.energy - self.metabolic_rate * dt * 0.5).max(0.0); // Example: energy drains at half the metabolic rate of satiety
+
         // Recover energy if resting
         if is_resting {
             self.energy = (self.energy + self.energy_recovery_rate * dt).min(self.max_energy);

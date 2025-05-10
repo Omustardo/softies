@@ -2,6 +2,7 @@ use rapier2d::prelude::*;
 use nalgebra::{Vector2, Point2};
 use eframe::egui; // Keep for draw method later
 use rand::Rng;
+use tracing; // Add tracing import
 
 use crate::creature::{Creature, CreatureState, WorldContext, CreatureInfo};
 use crate::creature_attributes::{CreatureAttributes, DietType};
@@ -332,19 +333,33 @@ impl Plankton {
         world_context: &WorldContext, 
     ) {
         // Constants for controlling net vertical acceleration (relative to world gravity magnitude of 1.0)
-        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_LOW: f32 = 0.2;    // Net upward acceleration if too low (Reduced from 0.5)
-        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_HIGH: f32 = -1.5;  // Net downward acceleration if too high
-        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_INZONE: f32 = 0.0; // Hover in the light zone
-        const NET_GRAVITY_ACCEL_SCALE_WANDERING: f32 = -0.8;         // Slow sink when wandering (Increased sink from -0.5)
-        const NET_GRAVITY_ACCEL_SCALE_RESTING: f32 = -1.0;           // Normal sink when resting (counteracts gravity_scale=1)
+        const BASE_BUOYANCY_FORCE: f32 = 0.002;  // Base force magnitude
+        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_LOW: f32 = 0.02;    
+        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_HIGH: f32 = -0.2;   
+        const NET_GRAVITY_ACCEL_SCALE_SEEKING_FOOD_INZONE: f32 = 0.0;  
+        const NET_GRAVITY_ACCEL_SCALE_WANDERING: f32 = -0.05;         
+        const NET_GRAVITY_ACCEL_SCALE_RESTING: f32 = -0.1;            
+
+        // Add oscillation parameters
+        const OSCILLATION_AMPLITUDE: f32 = 0.05;  
+        const OSCILLATION_FREQUENCY: f32 = 0.3;   
+
+        // Velocity control parameters
+        const MAX_VERTICAL_SPEED: f32 = 0.5;  // Maximum vertical speed
+        const VERTICAL_DAMPING: f32 = 0.1;    // Damping factor for vertical movement
+        const HORIZONTAL_DAMPING: f32 = 0.05; // Damping factor for horizontal movement
 
         let light_zone_target_min_y = world_context.world_height * 0.05;
         let light_zone_target_max_y = world_context.world_height * 0.35;
 
         for handle in &self.segment_handles {
             if let Some(body) = rigid_body_set.get_mut(*handle) {
-                let body_mass = body.mass();
                 let current_y = body.translation().y;
+                let current_x = body.translation().x;
+                let current_velocity = *body.linvel();
+                
+                // Calculate oscillation based on x position to create a wave-like pattern
+                let oscillation = (current_x * OSCILLATION_FREQUENCY).sin() * OSCILLATION_AMPLITUDE;
                 
                 let target_net_accel_y_factor = match self.current_state {
                     CreatureState::SeekingFood => {
@@ -357,26 +372,73 @@ impl Plankton {
                         }
                     }
                     CreatureState::Wandering | CreatureState::Idle => {
-                        NET_GRAVITY_ACCEL_SCALE_WANDERING
+                        NET_GRAVITY_ACCEL_SCALE_WANDERING + oscillation
                     }
                     CreatureState::Resting => {
-                        NET_GRAVITY_ACCEL_SCALE_RESTING
+                        NET_GRAVITY_ACCEL_SCALE_RESTING + oscillation * 0.5
                     }
                     CreatureState::Fleeing => {
-                        // Default to wandering buoyancy for fleeing for now
-                        NET_GRAVITY_ACCEL_SCALE_WANDERING 
+                        NET_GRAVITY_ACCEL_SCALE_WANDERING + oscillation
                     }
                 };
 
-                // Calculate the required buoyancy force to achieve the target net acceleration.
-                // Net Force Y = Buoyancy Force Y + Gravitational Force Y
-                // Gravitational Force Y = body_mass * gravity_scale * world_gravity_y
-                // With gravity_scale = 1.0 and world_gravity_y = -1.0, Gravitational Force Y = -body_mass.
-                // So, target_net_accel_y_factor * body_mass = Buoyancy Force Y - body_mass
-                // Buoyancy Force Y = (target_net_accel_y_factor + 1.0) * body_mass
-                let buoyancy_force_y = (target_net_accel_y_factor + 1.0) * body_mass;
+                // Calculate base buoyancy force
+                let buoyancy_force_y = BASE_BUOYANCY_FORCE * (1.0 + target_net_accel_y_factor);
                 
-                body.add_force(Vector2::new(0.0, buoyancy_force_y), true);
+                // Apply velocity-dependent damping
+                let mut final_force_y = buoyancy_force_y;
+                
+                // Vertical velocity damping
+                if current_velocity.y.abs() > MAX_VERTICAL_SPEED {
+                    // If exceeding max speed, apply strong damping
+                    final_force_y -= current_velocity.y * VERTICAL_DAMPING * 2.0;
+                } else {
+                    // Normal damping
+                    final_force_y -= current_velocity.y * VERTICAL_DAMPING;
+                }
+                
+                // Horizontal velocity damping
+                let damping_force_x = -current_velocity.x * HORIZONTAL_DAMPING;
+                
+                // // Debug logging for every 10th frame (roughly 6 times per second at 60fps)
+                // if self.id == 10 && self.id % 10 == 0 {  // Only log for plankton with ID 10
+                //     tracing::debug!(
+                //         plankton_id = self.id,
+                //         state = ?self.current_state,
+                //         position = ?(current_x, current_y),
+                //         velocity = ?(current_velocity.x, current_velocity.y),
+                //         velocity_magnitude = current_velocity.norm(),
+                //         mass = body.mass(),
+                //         oscillation = oscillation,
+                //         target_accel_factor = target_net_accel_y_factor,
+                //         buoyancy_force = buoyancy_force_y,
+                //         final_force = final_force_y,
+                //         damping_force_x = damping_force_x,
+                //         energy = self.attributes.energy,
+                //         max_energy = self.attributes.max_energy,
+                //         "Plankton debug info"
+                //     );
+
+                //     // Add warning if velocity is too high
+                //     if current_velocity.norm() > 3.0 {
+                //         tracing::warn!(
+                //             plankton_id = self.id,
+                //             velocity = ?(current_velocity.x, current_velocity.y),
+                //             velocity_magnitude = current_velocity.norm(),
+                //             "Plankton moving too fast!"
+                //         );
+                //     }
+                // }
+                
+                // Add velocity damping if moving too fast
+                if current_velocity.norm() > 2.0 {
+                    body.set_linear_damping(20.0);
+                } else {
+                    body.set_linear_damping(12.0);
+                }
+                
+                // Apply the final forces
+                body.add_force(Vector2::new(damping_force_x, final_force_y), true);
             }
         }
     }
@@ -421,33 +483,33 @@ impl Creature for Plankton {
         dt: f32,
         own_id: u128,
         rigid_body_set: &mut RigidBodySet,
-        _impulse_joint_set: &mut ImpulseJointSet, // Prefixed with underscore
+        _impulse_joint_set: &mut ImpulseJointSet,
         collider_set: &ColliderSet,
         query_pipeline: &QueryPipeline,
         all_creatures_info: &Vec<CreatureInfo>,
         world_context: &WorldContext,
     ) {
         // Boids parameters (can be tuned)
-        let perception_radius: f32 = self.primary_radius * 15.0; // How far plankton can "see"
-        let separation_distance: f32 = self.primary_radius * 4.0; // Increased slightly
-        let cohesion_strength: f32 = 0.15; // Increased from 0.005
-        let separation_strength: f32 = 0.25; // Increased from 0.05
-        let alignment_strength: f32 = 0.1;  
+        let perception_radius: f32 = self.primary_radius * 10.0;  // Reduced from 15.0
+        let separation_distance: f32 = self.primary_radius * 1.5;  // Reduced from 2.0
+        let cohesion_strength: f32 = 0.15;   // Reduced from 0.2
+        let separation_strength: f32 = 0.25;  // Reduced from 0.3
+        let alignment_strength: f32 = 0.1;    // Reduced from 0.15
 
         let self_primary_handle = self.segment_handles.get(0).cloned().unwrap_or_else(RigidBodyHandle::invalid);
         let self_position = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.translation());
-        let _self_velocity = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.linvel()); // Prefixed with underscore
+        let self_velocity = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.linvel());
 
         // --- Sensing Phase using QueryPipeline --- 
         let mut boid_neighbors: Vec<BoidNeighborInfo> = Vec::new();
         let perception_shape = Ball::new(perception_radius);
         let perception_shape_pos = Isometry::new(self_position, 0.0);
-        // Filter to interact only with colliders that are creatures (user_data != u128::MAX)
-        // and are on a group that creatures can interact with (e.g. group 1)
-        // Assuming creatures are on group 1 and can interact with group 1.
-        // Walls are u128::MAX, so they won't be processed here unless filter is changed.
+        
+        // Modified filter to include all creatures
         let interaction_filter = InteractionGroups::new(Group::GROUP_1, Group::GROUP_1);
-        let query_filter = QueryFilter::new().groups(interaction_filter).exclude_rigid_body(self_primary_handle);
+        let query_filter = QueryFilter::new()
+            .groups(interaction_filter)
+            .exclude_rigid_body(self_primary_handle);
 
         query_pipeline.intersections_with_shape(
             rigid_body_set,
@@ -458,32 +520,33 @@ impl Creature for Plankton {
             |intersecting_collider_handle| {
                 let intersecting_collider = match collider_set.get(intersecting_collider_handle) {
                     Some(c) => c,
-                    None => return true, // Should not happen, continue query
+                    None => return true,
                 };
 
                 let creature_id_from_collider = intersecting_collider.user_data;
-                if creature_id_from_collider == u128::MAX { return true; } // Skip walls or non-creature objects
-                if creature_id_from_collider == own_id { return true; } // Should be excluded by query_filter, but double check
+                if creature_id_from_collider == u128::MAX { return true; } // Skip walls
+                if creature_id_from_collider == own_id { return true; } // Skip self
 
                 // Find this creature in all_creatures_info
                 if let Some(other_creature_info) = all_creatures_info.iter().find(|info| info.id == creature_id_from_collider) {
                     if other_creature_info.creature_type_name == "Plankton" {
-                        // Add to list for boid calculation
-                        boid_neighbors.push(BoidNeighborInfo {
-                            position: other_creature_info.position,
-                            velocity: other_creature_info.velocity,
-                        });
+                        // Only add if within perception radius
+                        let distance = (other_creature_info.position - self_position).norm();
+                        if distance <= perception_radius {
+                            boid_neighbors.push(BoidNeighborInfo {
+                                position: other_creature_info.position,
+                                velocity: other_creature_info.velocity,
+                            });
+                        }
                     }
-                    // Future: else if other_creature_info.creature_type_name == "Snake" { /* Flee from snake */ }
                 }
-                true // Continue the query
+                true
             },
         );
 
-        // Calculate Boid Impulse by calling the new function
+        // Calculate Boid Impulse
         let boid_impulse = calculate_boid_steering_impulse(
             self_position,
-            // self_velocity, // Pass if the function needs it
             &boid_neighbors,
             perception_radius,
             separation_distance,
@@ -492,11 +555,24 @@ impl Creature for Plankton {
             alignment_strength
         );
 
+        // // Debug logging for boids behavior
+        // if self.id == 10 && self.id % 10 == 0 {  // Only log for plankton with ID 10
+        //     tracing::debug!(
+        //         plankton_id = self.id,
+        //         neighbors = boid_neighbors.len(),
+        //         boid_impulse = ?(boid_impulse.x, boid_impulse.y),
+        //         boid_impulse_magnitude = boid_impulse.norm(),
+        //         self_velocity = ?(self_velocity.x, self_velocity.y),
+        //         self_velocity_magnitude = self_velocity.norm(),
+        //         "Plankton boids debug info"
+        //     );
+        // }
+
         // State transition logic - use primary segment for position check
         let current_y = self_position.y;
 
         // Define energy thresholds for state changes
-        let energy_critically_low_threshold = self.attributes.max_energy * 0.25; // Changed from 0.35 
+        let energy_critically_low_threshold = self.attributes.max_energy * 0.21; // Changed from 0.25 
         let energy_comfortable_threshold = self.attributes.max_energy * 0.65; 
 
         // Define the "light zone" for SeekingFood behavior reference
@@ -546,7 +622,7 @@ impl Creature for Plankton {
                 if let Some(body) = rigid_body_set.get_mut(self_primary_handle) {
                     if self_primary_handle != RigidBodyHandle::invalid() { 
                         let mut rng = rand::thread_rng();
-                        let impulse_strength = 0.02; 
+                        let impulse_strength = 0.05; // Increased from 0.02
                         let random_impulse = Vector2::new(
                             rng.gen_range(-impulse_strength..impulse_strength),
                             rng.gen_range(-impulse_strength..impulse_strength)
@@ -558,7 +634,8 @@ impl Creature for Plankton {
             }
             CreatureState::SeekingFood => { 
                 // Energy recovery for plankton happens here if in light zone
-                if current_y >= light_zone_ideal_min_y && current_y <= light_zone_ideal_max_y {
+                let energy_cap_for_photosynthesis = self.attributes.max_energy * 0.9;
+                if current_y >= light_zone_ideal_min_y && current_y <= light_zone_ideal_max_y && self.attributes.energy < energy_cap_for_photosynthesis {
                     self.attributes.energy = (self.attributes.energy + self.attributes.energy_recovery_rate * dt).min(self.attributes.max_energy);
                 }
                 // Buoyancy handles upward movement if needed (defined in apply_buoyancy_and_drag)
