@@ -86,23 +86,49 @@ impl Default for SoftiesApp {
         let mut creature_id_counter: u128 = 0;
         let mut rng = rand::thread_rng(); // Initialize RNG
 
-        // --- Create Snake ---
+        // --- Create Multiple Snakes ---
+        let num_snakes = 3;
         let segment_radius = 5.0 / PIXELS_PER_METER;
         let segment_spacing = 15.0 / PIXELS_PER_METER;
-        let mut snake = Snake::new(
-            segment_radius,
-            10, // Number of segments
-            segment_spacing,
-        );
-        snake.spawn_rapier(
-            &mut rigid_body_set,
-            &mut collider_set,
-            &mut impulse_joint_set,
-            Vector2::new(0.0, hh / 2.0), // Start in the upper half
-            creature_id_counter,
-        );
-        creatures.push(Box::new(snake));
-        creature_id_counter += 1;
+        let margin = 2.0; // Keep snakes away from walls
+
+        for i in 0..num_snakes {
+            let mut snake = Snake::new(
+                segment_radius,
+                10, // Number of segments
+                segment_spacing,
+            );
+
+            // Adjust energy parameters for longer active periods
+            snake.attributes_mut().max_energy = 150.0; // Increased from 100.0
+            snake.attributes_mut().energy_recovery_rate = 8.0; // Increased from 5.0
+            snake.attributes_mut().metabolic_rate = 0.5; // Reduced from 1.0
+            snake.attributes_mut().energy = 150.0; // Start with full energy
+
+            // Calculate different starting positions for each snake
+            let initial_x = match i {
+                0 => -hw / 2.0, // Left side
+                1 => 0.0,       // Center
+                2 => hw / 2.0,  // Right side
+                _ => rng.gen_range((-hw + margin)..(hw - margin)), // Random for any additional snakes
+            };
+            let initial_y = match i {
+                0 => hh / 3.0,  // Upper third
+                1 => 0.0,       // Middle
+                2 => -hh / 3.0, // Lower third
+                _ => rng.gen_range((-hh + margin)..(hh - margin)), // Random for any additional snakes
+            };
+
+            snake.spawn_rapier(
+                &mut rigid_body_set,
+                &mut collider_set,
+                &mut impulse_joint_set,
+                Vector2::new(initial_x, initial_y),
+                creature_id_counter,
+            );
+            creatures.push(Box::new(snake));
+            creature_id_counter += 1;
+        }
 
         // --- Create Plankton ---
         let num_plankton = 20;

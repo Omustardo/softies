@@ -1,6 +1,7 @@
 use rapier2d::prelude::*;
 use nalgebra::{Point2, Vector2};
 use eframe::egui; // Add egui import
+use rand::{self, Rng}; // Add Rng trait import
 
 use crate::creature::{Creature, CreatureState, WorldContext, CreatureInfo}; // Add WorldContext and CreatureInfo import
 use crate::creature_attributes::{CreatureAttributes, DietType}; // Use package name
@@ -13,6 +14,7 @@ pub struct Snake {
     segment_count: usize,
     segment_spacing: f32,
     wiggle_timer: f32, // Timer to control the wiggle animation
+    rest_timer: f32,   // Timer to track rest time
     attributes: CreatureAttributes, // Added attributes field
     current_state: CreatureState, // Added state field
 }
@@ -35,6 +37,10 @@ impl Snake {
             vec!["snake".to_string(), "medium_predator".to_string()], // self_tags
         );
 
+        // Initialize rest_timer with a random value between 0 and 5 seconds
+        let mut rng = rand::thread_rng();
+        let rest_timer = rng.gen_range(0.0..5.0);
+
         Self {
             id: 0, // Default ID, will be overwritten in spawn_rapier
             segment_handles: Vec::with_capacity(segment_count),
@@ -43,6 +49,7 @@ impl Snake {
             segment_count,
             segment_spacing,
             wiggle_timer: 0.0, // Initialize timer
+            rest_timer,        // Initialize with random value
             attributes,        // Initialize attributes
             current_state: CreatureState::Wandering, // Start wandering
         }
@@ -63,13 +70,27 @@ impl Snake {
 
         let mut parent_handle: Option<RigidBodyHandle> = None;
 
+        // --- Coil (circular) initialization ---
+        let coil_radius = self.segment_spacing * (self.segment_count as f32) / (2.0 * std::f32::consts::PI);
+        
+        // Add random rotation to the entire coil
+        let mut rng = rand::thread_rng();
+        let base_rotation = rng.gen_range(0.0..std::f32::consts::TAU);
+        
+        // Randomize initial energy between 50% and 100%
+        let energy_ratio = rng.gen_range(0.5..1.0);
+        self.attributes.energy = self.attributes.max_energy * energy_ratio;
+
         for i in 0..self.segment_count {
-            let segment_x = initial_position.x + i as f32 * self.segment_spacing;
-            let segment_y = initial_position.y;
+            let angle = (i as f32) * (2.0 * std::f32::consts::PI / self.segment_count as f32) + base_rotation;
+            let segment_x = initial_position.x + coil_radius * angle.cos();
+            let segment_y = initial_position.y + coil_radius * angle.sin();
+            let orientation = angle;
 
             // Create RigidBody
             let rb = RigidBodyBuilder::dynamic()
                 .translation(vector![segment_x, segment_y])
+                .rotation(orientation)
                 .linear_damping(10.0) // Increased damping significantly for water resistance
                 .angular_damping(5.0) // Increase angular damping
                 .sleeping(false) // Disable sleeping for snake segments
@@ -116,6 +137,8 @@ impl Snake {
         frequency_scale: f32, // Scale factor for wiggle speed
         energy_cost_scale: f32, // Scale factor for energy cost
     ) {
+        // Add a random phase offset based on the snake's ID to make each snake unique
+        let id_based_phase = (self.id as f32) * 0.1;
         self.wiggle_timer += dt * 3.0 * frequency_scale;
 
         let target_velocity_amplitude = 1.8 * amplitude_scale; // Slightly reduced base amplitude
@@ -127,8 +150,14 @@ impl Snake {
 
         for (i, handle) in self.joint_handles.iter().enumerate() {
             if let Some(joint) = impulse_joint_set.get_mut(*handle) {
-                let phase = self.wiggle_timer + (i as f32 / (self.segment_count - 1) as f32) * std::f32::consts::TAU * wiggle_frequency;
-                let target_velocity = phase.sin() * target_velocity_amplitude;
+                // Add randomization to the phase calculation
+                let segment_phase = (i as f32 / (self.segment_count - 1) as f32) * std::f32::consts::TAU * wiggle_frequency;
+                let phase = self.wiggle_timer + segment_phase + id_based_phase;
+                
+                // Add some noise to the amplitude for each segment
+                let noise = (phase * 2.0).sin() * 0.2; // Subtle variation
+                let target_velocity = (phase.sin() + noise) * target_velocity_amplitude;
+                
                 joint.data.set_motor_velocity(JointAxis::AngX, target_velocity, motor_force_factor);
                 total_applied_velocity += target_velocity.abs();
             }
@@ -232,6 +261,13 @@ impl Creature for Snake {
         let mut next_state = self.current_state; // Start with current state
         let current_energy = self.attributes.energy;
 
+        // Update rest timer
+        if self.current_state == CreatureState::Resting {
+            self.rest_timer += dt;
+        } else {
+            self.rest_timer = 0.0;
+        }
+
         // Priorities: Fleeing > SeekingFood > Resting > Wandering > Idle 
         // (We only have Resting and Wandering/Idle logic for now)
 
@@ -262,16 +298,13 @@ impl Creature for Snake {
         
         if next_state != self.current_state {
             println!(
-                "State Transition: {:?} -> {:?} (Energy: {:.2})", 
-                self.current_state, next_state, current_energy
+                "State Transition: {:?} -> {:?} (Energy: {:.2}, Rest Time: {:.2}s)", 
+                self.current_state, next_state, current_energy, self.rest_timer
             );
         }
         self.current_state = next_state;
 
         // --- Execute Behavior based on State --- 
-        // Log current state and energy before acting
-        // println!("Executing State: {:?} (Energy: {:.2})", self.current_state, self.attributes.energy);
-
         match self.current_state {
             CreatureState::Idle => {
                 // Minimal movement or stop motors completely
@@ -423,5 +456,62 @@ impl Creature for Snake {
                 ));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rapier2d::prelude::*;
+    use nalgebra::Vector2;
+
+    fn setup_test_snake(id: u128, initial_position: Vector2<f32>) -> (Snake, RigidBodySet, ColliderSet, ImpulseJointSet) {
+        let mut rigid_body_set = RigidBodySet::new();
+        let mut collider_set = ColliderSet::new();
+        let mut impulse_joint_set = ImpulseJointSet::new();
+        let mut snake = Snake::new(0.1, 5, 0.2);
+        snake.spawn_rapier(
+            &mut rigid_body_set,
+            &mut collider_set,
+            &mut impulse_joint_set,
+            initial_position,
+            id,
+        );
+        (snake, rigid_body_set, collider_set, impulse_joint_set)
+    }
+
+    #[test]
+    fn test_snake_movement_randomization() {
+        // Create two snakes with different IDs
+        let (mut snake1, _rigid_body_set1, _collider_set1, mut impulse_joint_set1) = setup_test_snake(1, Vector2::new(0.0, 0.0));
+        let (mut snake2, _rigid_body_set2, _collider_set2, mut impulse_joint_set2) = setup_test_snake(2, Vector2::new(0.0, 0.0));
+
+        // Record the target velocities set by apply_wiggle for each snake
+        let mut snake1_velocities = Vec::new();
+        let mut snake2_velocities = Vec::new();
+
+        for _ in 0..10 {
+            // Apply wiggle for both snakes
+            snake1.apply_wiggle(0.016, &mut impulse_joint_set1, 1.0, 1.0, 1.0);
+            snake2.apply_wiggle(0.016, &mut impulse_joint_set2, 1.0, 1.0, 1.0);
+
+            // Get the first joint's target velocity for each snake
+            let joint1 = impulse_joint_set1.get(snake1.joint_handles[0]).unwrap();
+            let joint2 = impulse_joint_set2.get(snake2.joint_handles[0]).unwrap();
+            let vel1 = joint1.data.motor(JointAxis::AngX).unwrap().target_vel;
+            let vel2 = joint2.data.motor(JointAxis::AngX).unwrap().target_vel;
+            snake1_velocities.push(vel1);
+            snake2_velocities.push(vel2);
+        }
+
+        // Verify that the snakes have different movement patterns
+        let mut differences_found = false;
+        for (v1, v2) in snake1_velocities.iter().zip(snake2_velocities.iter()) {
+            if (v1 - v2).abs() > 0.001 {
+                differences_found = true;
+                break;
+            }
+        }
+        assert!(differences_found, "Snakes should have different movement patterns");
     }
 } 
