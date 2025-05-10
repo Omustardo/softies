@@ -17,6 +17,7 @@ pub struct Snake {
     current_state: CreatureState, // Added state field
 }
 
+#[allow(dead_code)]
 impl Snake {
     // Simple constructor
     pub fn new(segment_radius: f32, segment_count: usize, segment_spacing: f32) -> Self {

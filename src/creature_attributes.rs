@@ -28,6 +28,7 @@ pub struct CreatureAttributes {
     pub self_tags: Vec<String>,
 }
 
+#[allow(dead_code)]
 impl CreatureAttributes {
     /// Creates a new set of attributes with default values.
     /// Consider using a builder pattern if this gets complex.

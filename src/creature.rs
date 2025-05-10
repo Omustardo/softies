@@ -5,6 +5,7 @@ use eframe::egui; // Added for Painter in draw method
 use crate::creature_attributes::CreatureAttributes;
 
 /// Represents the general behavioral state of a creature.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatureState {
     Idle,      // Doing nothing specific, minimal movement.
@@ -16,7 +17,7 @@ pub enum CreatureState {
 }
 
 /// Context about the simulation world passed to creature updates.
-#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct WorldContext {
     pub world_height: f32,
     pub pixels_per_meter: f32,
@@ -24,6 +25,7 @@ pub struct WorldContext {
 
 /// Basic information about a creature, used for awareness by other creatures.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CreatureInfo {
     pub id: u128,
     pub creature_type_name: &'static str,
@@ -34,6 +36,7 @@ pub struct CreatureInfo {
     // pub attributes: CreatureAttributes, // Consider if the full attributes are needed or just specific parts like size/tags
 }
 
+#[allow(dead_code)]
 pub trait Creature {
     // Return unique ID for this creature instance
     fn id(&self) -> u128;

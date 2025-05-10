@@ -2,7 +2,6 @@ use rapier2d::prelude::*;
 use nalgebra::{Vector2, Point2};
 use eframe::egui; // Keep for draw method later
 use rand::Rng;
-use tracing; // Add tracing import
 
 use crate::creature::{Creature, CreatureState, WorldContext, CreatureInfo};
 use crate::creature_attributes::{CreatureAttributes, DietType};
@@ -233,6 +232,7 @@ pub struct Plankton {
     pub secondary_radius: f32, // Added second radius
 }
 
+#[allow(dead_code)]
 impl Plankton {
     // Constructor
     pub fn new(primary_radius: f32) -> Self {
@@ -498,7 +498,7 @@ impl Creature for Plankton {
 
         let self_primary_handle = self.segment_handles.get(0).cloned().unwrap_or_else(RigidBodyHandle::invalid);
         let self_position = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.translation());
-        let self_velocity = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.linvel());
+        let _self_velocity = rigid_body_set.get(self_primary_handle).map_or(Vector2::zeros(), |b| *b.linvel());
 
         // --- Sensing Phase using QueryPipeline --- 
         let mut boid_neighbors: Vec<BoidNeighborInfo> = Vec::new();

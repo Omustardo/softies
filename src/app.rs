@@ -150,7 +150,7 @@ impl Default for SoftiesApp {
 
 impl SoftiesApp {
     // Add the new tick_simulation method here, before eframe::App impl
-    pub fn tick_simulation(&mut self, dt: f32, ctx: &egui::Context) {
+    pub fn tick_simulation(&mut self, dt: f32, _ctx: &egui::Context) {
         // --- Creature Updates --- 
         for creature in &mut self.creatures {
             let is_this_creature_resting = creature.current_state() == crate::creature::CreatureState::Resting;

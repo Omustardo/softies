@@ -6,10 +6,15 @@ mod creatures;
 mod creature_attributes; // Re-enable this module for the binary crate
 
 // Constants for the aquarium
+#[allow(dead_code)]
 const AQUARIUM_WIDTH: f32 = 500.0;
+#[allow(dead_code)]
 const AQUARIUM_HEIGHT: f32 = 300.0;
+#[allow(dead_code)]
 const MIN_ZOOM: f32 = 0.1;
+#[allow(dead_code)]
 const MAX_ZOOM: f32 = 5.0;
+#[allow(dead_code)]
 const CAMERA_BOUND_PADDING: f32 = 0.3; // 30% padding
 
 fn main() -> eframe::Result<()> {
