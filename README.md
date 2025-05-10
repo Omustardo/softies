@@ -61,7 +61,7 @@ About 3 hours in total, but I wasn't paying much attention and kept coming back 
 
 Cursor "Premium" Queries (session, cumulative): 20, 350
 
-## Day 5
+## Day 5 (2025-05-06)
 
 ~1 hour of solid work.
 
@@ -70,3 +70,24 @@ Cursor "Premium" Queries (session, cumulative): 20, 350
 * Added an architecture doc. Might be helpful as a reference for the LLM.
 
 Queries: 10, 360
+
+## Day 6 (2025-05-08)
+
+~1 hour.
+
+* Refactored a bit and added a test for plankton movement. For whatever reason they just aren't going into its resting state.
+
+Queries: 10, 370
+
+## Day 7 (2025-05-09)
+
+3 hours, medium focus.
+
+* Fixed plankton movement (they were always jumping right to the top of the screen)
+* Spent a while trying to get snakes to stop glitching out. They would move ok and visually glitch, then suddenly disappear. I presume it's a physics glitch that gives them very high speed. Cursor kept trying patches, like moving something out of bounds back to the center, but not fixing the underlying issue.
+
+Queries: 60, 430
+
+## Day 8
+
+TODO

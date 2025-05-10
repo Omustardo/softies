@@ -17,6 +17,21 @@ pub struct Snake {
     rest_timer: f32,   // Timer to track rest time
     attributes: CreatureAttributes, // Added attributes field
     current_state: CreatureState, // Added state field
+    // Add new fields for target tracking
+    target_position: Option<Vector2<f32>>,
+    target_update_timer: f32,
+    last_position: Vector2<f32>,
+    stuck_timer: f32,
+    // Add debug fields
+    debug_info: DebugInfo,
+}
+
+#[derive(Default)]
+struct DebugInfo {
+    max_velocity: f32,
+    collision_count: u32,
+    last_collision_time: f32,
+    problematic_segments: Vec<usize>,
 }
 
 #[allow(dead_code)]
@@ -52,6 +67,11 @@ impl Snake {
             rest_timer,        // Initialize with random value
             attributes,        // Initialize attributes
             current_state: CreatureState::Wandering, // Start wandering
+            target_position: None,
+            target_update_timer: 0.0,
+            last_position: Vector2::zeros(),
+            stuck_timer: 0.0,
+            debug_info: DebugInfo::default(),
         }
     }
 
@@ -62,64 +82,51 @@ impl Snake {
         collider_set: &mut ColliderSet,
         impulse_joint_set: &mut ImpulseJointSet,
         initial_position: Vector2<f32>,
-        creature_id: u128, // Added creature ID
+        creature_id: u128,
     ) {
-        self.id = creature_id; // Store the ID
+        self.id = creature_id;
         self.segment_handles.clear();
         self.joint_handles.clear();
 
         let mut parent_handle: Option<RigidBodyHandle> = None;
-
-        // --- Coil (circular) initialization ---
-        let coil_radius = self.segment_spacing * (self.segment_count as f32) / (2.0 * std::f32::consts::PI);
-        
-        // Add random rotation to the entire coil
         let mut rng = rand::thread_rng();
-        let base_rotation = rng.gen_range(0.0..std::f32::consts::TAU);
         
-        // Randomize initial energy between 50% and 100%
-        let energy_ratio = rng.gen_range(0.5..1.0);
-        self.attributes.energy = self.attributes.max_energy * energy_ratio;
-
+        let initial_angle: f32 = rng.gen_range(-0.02..0.02); // Moderate angle range
+        
         for i in 0..self.segment_count {
-            let angle = (i as f32) * (2.0 * std::f32::consts::PI / self.segment_count as f32) + base_rotation;
-            let segment_x = initial_position.x + coil_radius * angle.cos();
-            let segment_y = initial_position.y + coil_radius * angle.sin();
-            let orientation = angle;
+            let segment_x = initial_position.x + (i as f32) * self.segment_spacing * initial_angle.cos();
+            let segment_y = initial_position.y + (i as f32) * self.segment_spacing * initial_angle.sin();
+            let orientation = initial_angle;
 
-            // Create RigidBody
+            // Create RigidBody with moderate damping
             let rb = RigidBodyBuilder::dynamic()
                 .translation(vector![segment_x, segment_y])
                 .rotation(orientation)
-                .linear_damping(10.0) // Increased damping significantly for water resistance
-                .angular_damping(5.0) // Increase angular damping
-                .sleeping(false) // Disable sleeping for snake segments
-                .ccd_enabled(true) // Enable CCD when disabling sleeping
+                .linear_damping(15.0) // Moderate damping
+                .angular_damping(8.0)  // Moderate damping
                 .build();
             let segment_handle = rigid_body_set.insert(rb);
             self.segment_handles.push(segment_handle);
 
-            // Create Collider
+            // Create Collider with moderate parameters
             let collider = ColliderBuilder::ball(self.segment_radius)
-                             .restitution(0.2) // Lower restitution for less bounce
-                             .density(100.0) // Significantly higher density (closer to water-like mass)
-                             .user_data(creature_id) // Set the creature ID here
-                             .build();
+                .restitution(0.0)  // No bounce
+                .density(3.0)      // Moderate density
+                .friction(0.1)     // Moderate friction
+                .user_data(creature_id)
+                .build();
             collider_set.insert_with_parent(collider, segment_handle, rigid_body_set);
 
-            // Create joint with the previous segment
+            // Create joint with moderate parameters
             if let Some(prev_handle) = parent_handle {
                 let joint = RevoluteJointBuilder::new()
-                    // Convert vectors to points for anchors
                     .local_anchor1(Point2::new(self.segment_spacing / 2.0, 0.0))
                     .local_anchor2(Point2::new(-self.segment_spacing / 2.0, 0.0))
-                    // Add damping and stiffness for a more "soft" feel
-                    .motor_velocity(0.0, 0.0) // Target velocity = 0
-                    .motor_max_force(100.0) // Limit motor force
+                    .motor_velocity(0.0, 0.0)
+                    .motor_max_force(0.3)  // Moderate force
                     .motor_model(MotorModel::ForceBased)
-                    //.set_contacts_enabled(false) // Maybe disable segment-segment collision?
+                    .limits([-0.02, 0.02])   // Moderate limits
                     .build();
-                // Insert joint into the provided set
                 let joint_handle = impulse_joint_set.insert(prev_handle, segment_handle, joint, true);
                 self.joint_handles.push(joint_handle);
             }
@@ -128,43 +135,347 @@ impl Snake {
         }
     }
 
-    // Helper function for the wiggle/movement logic
+    // Add new method to update target position
+    fn update_target_position(&mut self, _rigid_body_set: &RigidBodySet, world_context: &WorldContext) {
+        let mut rng = rand::thread_rng();
+        
+        // Update target every 3-5 seconds or if we're stuck
+        if self.target_position.is_none() || self.target_update_timer > rng.gen_range(3.0..5.0) || self.stuck_timer > 1.0 {
+            // Generate new target within world bounds
+            // Use world_height and assume square world for now
+            let world_size = world_context.world_height;
+            let new_target = Vector2::new(
+                rng.gen_range(-world_size/2.0..world_size/2.0),
+                rng.gen_range(-world_size/2.0..world_size/2.0)
+            );
+            self.target_position = Some(new_target);
+            self.target_update_timer = 0.0;
+            self.stuck_timer = 0.0;
+        }
+    }
+
+    // Add method to check if snake is stuck
+    fn check_if_stuck(&mut self, rigid_body_set: &RigidBodySet) {
+        if let Some(head_handle) = self.segment_handles.first() {
+            if let Some(head_body) = rigid_body_set.get(*head_handle) {
+                let current_pos = Vector2::new(head_body.translation().x, head_body.translation().y);
+                let distance_moved = (current_pos - self.last_position).norm();
+                
+                if distance_moved < 0.1 {
+                    self.stuck_timer += 0.016; // Assuming 60 FPS
+                } else {
+                    self.stuck_timer = 0.0;
+                }
+                
+                self.last_position = current_pos;
+            }
+        }
+    }
+
+    // Add method to check for self-collision and problematic states
+    fn check_safety(&mut self, rigid_body_set: &RigidBodySet, dt: f32) -> bool {
+        let mut is_safe = true;
+        self.debug_info.problematic_segments.clear();
+
+        // Get all segment positions
+        let mut segment_positions = Vec::new();
+        for handle in &self.segment_handles {
+            if let Some(body) = rigid_body_set.get(*handle) {
+                let pos = Vector2::new(body.translation().x, body.translation().y);
+                let vel = body.linvel();
+                segment_positions.push((pos, vel));
+
+                // Check velocity bounds - extremely reduced maximum safe speed
+                let speed = vel.norm();
+                if speed > 5.0 {  // Reduced from 10.0
+                    is_safe = false;
+                    self.debug_info.max_velocity = speed;
+                }
+            }
+        }
+
+        // Check for self-collision and segment spacing
+        for i in 0..segment_positions.len() {
+            for j in (i + 2)..segment_positions.len() {
+                let (pos1, _) = segment_positions[i];
+                let (pos2, _) = segment_positions[j];
+                let distance = (pos1 - pos2).norm();
+                
+                // If segments are too close, mark as problematic
+                if distance < self.segment_radius * 2.5 {  // Increased from 2.0
+                    is_safe = false;
+                    self.debug_info.problematic_segments.push(i);
+                    self.debug_info.problematic_segments.push(j);
+                    self.debug_info.collision_count += 1;
+                    self.debug_info.last_collision_time = 0.0;
+                }
+            }
+        }
+
+        // Update debug timers
+        self.debug_info.last_collision_time += dt;
+
+        is_safe
+    }
+
+    // Add method to correct problematic states
+    fn correct_problematic_state(&mut self, rigid_body_set: &mut RigidBodySet) {
+        // If we have problematic segments, try to straighten them out
+        if !self.debug_info.problematic_segments.is_empty() {
+            // First, collect all the positions we need
+            let mut segment_positions = Vec::new();
+            for handle in &self.segment_handles {
+                if let Some(body) = rigid_body_set.get(*handle) {
+                    let pos = Vector2::new(body.translation().x, body.translation().y);
+                    segment_positions.push(pos);
+                }
+            }
+
+            // Then apply corrections
+            for &segment_idx in &self.debug_info.problematic_segments {
+                if let Some(handle) = self.segment_handles.get(segment_idx) {
+                    if let Some(body) = rigid_body_set.get_mut(*handle) {
+                        // Apply damping to problematic segments
+                        body.set_linvel(vector![0.0, 0.0], true);
+                        body.set_angvel(0.0, true);
+                        
+                        // If it's not the head, try to align with adjacent segments
+                        if segment_idx > 0 && segment_idx < self.segment_count - 1 {
+                            let prev_pos = segment_positions[segment_idx - 1];
+                            let next_pos = segment_positions[segment_idx + 1];
+                            let target_pos = (prev_pos + next_pos) * 0.5;
+                            
+                            // Gently move towards the target position
+                            let current_pos = Vector2::new(body.translation().x, body.translation().y);
+                            let correction = (target_pos - current_pos) * 0.1;
+                            body.set_translation(vector![
+                                current_pos.x + correction.x,
+                                current_pos.y + correction.y
+                            ], true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add method to check if position is within bounds
+    fn is_within_bounds(&self, pos: Vector2<f32>, world_context: &WorldContext) -> bool {
+        let half_size = world_context.world_height / 2.0;
+        let margin = self.segment_radius * 3.0; // Increased margin for better safety
+        
+        pos.x.abs() < half_size - margin && pos.y.abs() < half_size - margin
+    }
+
+    // Add method to get a safe position within bounds
+    fn get_safe_position(&self, world_context: &WorldContext) -> Vector2<f32> {
+        let half_size = world_context.world_height / 2.0;
+        let margin = self.segment_radius * 6.0; // Increased margin for better safety
+        let mut rng = rand::thread_rng();
+        
+        Vector2::new(
+            rng.gen_range(-half_size + margin..half_size - margin),
+            rng.gen_range(-half_size + margin..half_size - margin)
+        )
+    }
+
+    // Add method to reset snake to a safe position
+    fn reset_to_safe_position(&mut self, rigid_body_set: &mut RigidBodySet, world_context: &WorldContext) {
+        let base_pos = self.get_safe_position(world_context);
+        let mut rng = rand::thread_rng();
+        let initial_angle: f32 = rng.gen_range(-0.01..0.01); // Reduced angle range for more stability
+
+        // Reset each segment to a proper formation with gentle curve
+        for (i, handle) in self.segment_handles.iter().enumerate() {
+            if let Some(body) = rigid_body_set.get_mut(*handle) {
+                // Calculate position in a gentle curve
+                let segment_x = base_pos.x + (i as f32) * self.segment_spacing * initial_angle.cos();
+                let segment_y = base_pos.y + (i as f32) * self.segment_spacing * initial_angle.sin();
+                
+                // Reset position and velocity immediately
+                body.set_translation(vector![segment_x, segment_y], true);
+                body.set_rotation(Rotation::new(initial_angle), true);
+                body.set_linvel(vector![0.0, 0.0], true);
+                body.set_angvel(0.0, true);
+            }
+        }
+
+        // Reset timers and state
+        self.wiggle_timer = 0.0;
+        self.stuck_timer = 0.0;
+        self.target_position = None;
+        self.target_update_timer = 0.0;
+        self.last_position = base_pos;
+    }
+
+    // Add method to calculate boundary avoidance force
+    fn calculate_boundary_force(&self, pos: Vector2<f32>, world_context: &WorldContext) -> Option<Vector2<f32>> {
+        let half_size = world_context.world_height / 2.0;
+        let margin = self.segment_radius * 3.0; // Moderate margin
+        
+        // Calculate distance to each boundary
+        let dist_to_right = half_size - pos.x;
+        let dist_to_left = half_size + pos.x;
+        let dist_to_top = half_size - pos.y;
+        let dist_to_bottom = half_size + pos.y;
+        
+        // If we're too close to any boundary, calculate avoidance force
+        if dist_to_right < margin || dist_to_left < margin || dist_to_top < margin || dist_to_bottom < margin {
+            let mut force = Vector2::zeros();
+            
+            // Add force away from each boundary we're too close to
+            if dist_to_right < margin {
+                force.x -= (margin - dist_to_right) * 5.0; // Moderate force
+            }
+            if dist_to_left < margin {
+                force.x += (margin - dist_to_left) * 5.0;
+            }
+            if dist_to_top < margin {
+                force.y -= (margin - dist_to_top) * 5.0;
+            }
+            if dist_to_bottom < margin {
+                force.y += (margin - dist_to_bottom) * 5.0;
+            }
+            
+            // Normalize and scale the force
+            if let Some(normalized) = force.try_normalize(1e-6) {
+                return Some(normalized * 15.0); // Moderate force strength
+            }
+        }
+        
+        None
+    }
+
+    // Add method to clamp position within bounds
+    fn clamp_position(&self, pos: Vector2<f32>, world_context: &WorldContext) -> Vector2<f32> {
+        let half_size = world_context.world_height / 2.0;
+        let margin = self.segment_radius * 3.0; // Increased margin
+        
+        Vector2::new(
+            pos.x.clamp(-half_size + margin, half_size - margin),
+            pos.y.clamp(-half_size + margin, half_size - margin)
+        )
+    }
+
+    // Add method to check and correct all segments
+    fn check_and_correct_segments(&mut self, rigid_body_set: &mut RigidBodySet, world_context: &WorldContext) {
+        let mut needs_reset = false;
+        let half_size = world_context.world_height / 2.0;
+        let margin = self.segment_radius * 3.0; // Moderate margin
+        
+        // Check all segments for boundary violations
+        for handle in &self.segment_handles {
+            if let Some(body) = rigid_body_set.get_mut(*handle) {
+                let pos = Vector2::new(body.translation().x, body.translation().y);
+                
+                // Check if out of bounds
+                if pos.x.abs() >= half_size - margin || pos.y.abs() >= half_size - margin {
+                    // Calculate correction force
+                    let mut correction = Vector2::zeros();
+                    
+                    // X-axis correction
+                    if pos.x.abs() >= half_size - margin {
+                        correction.x = -pos.x.signum() * 20.0; // Moderate correction force
+                    }
+                    
+                    // Y-axis correction
+                    if pos.y.abs() >= half_size - margin {
+                        correction.y = -pos.y.signum() * 20.0; // Moderate correction force
+                    }
+                    
+                    // Apply correction force
+                    body.add_force(correction, true);
+                    
+                    // Moderate damping when near boundaries
+                    let vel = body.linvel();
+                    body.set_linvel(vel * 0.8, true); // Moderate velocity reduction
+                    
+                    // If too close to boundary, mark for reset
+                    if pos.x.abs() >= half_size - margin/2.0 || pos.y.abs() >= half_size - margin/2.0 {
+                        needs_reset = true;
+                    }
+                }
+            }
+        }
+        
+        if needs_reset {
+            self.reset_to_safe_position(rigid_body_set, world_context);
+            return;
+        }
+        
+        // Apply boundary forces to all segments
+        for handle in &self.segment_handles {
+            if let Some(body) = rigid_body_set.get_mut(*handle) {
+                let pos = Vector2::new(body.translation().x, body.translation().y);
+                if let Some(force) = self.calculate_boundary_force(pos, world_context) {
+                    body.add_force(force, true);
+                }
+            }
+        }
+    }
+
     fn apply_wiggle(
         &mut self,
         dt: f32,
         impulse_joint_set: &mut ImpulseJointSet,
-        amplitude_scale: f32, // Scale factor for wiggle intensity
-        frequency_scale: f32, // Scale factor for wiggle speed
-        energy_cost_scale: f32, // Scale factor for energy cost
+        rigid_body_set: &mut RigidBodySet,
+        mut amplitude_scale: f32,
+        mut frequency_scale: f32,
+        energy_cost_scale: f32,
     ) {
-        // Add a random phase offset based on the snake's ID to make each snake unique
         let id_based_phase = (self.id as f32) * 0.1;
-        self.wiggle_timer += dt * 3.0 * frequency_scale;
+        self.wiggle_timer += dt * frequency_scale;
 
-        let target_velocity_amplitude = 1.8 * amplitude_scale; // Slightly reduced base amplitude
-        let wiggle_frequency = 1.5;
-        let motor_force_factor = 4.0; // Reduced from 10.0
-        let base_energy_cost_per_rad_per_sec = 0.5;
-
-        let mut total_applied_velocity = 0.0;
-
-        for (i, handle) in self.joint_handles.iter().enumerate() {
-            if let Some(joint) = impulse_joint_set.get_mut(*handle) {
-                // Add randomization to the phase calculation
-                let segment_phase = (i as f32 / (self.segment_count - 1) as f32) * std::f32::consts::TAU * wiggle_frequency;
-                let phase = self.wiggle_timer + segment_phase + id_based_phase;
+        // Get the head segment's current orientation and position
+        if let Some(head_handle) = self.segment_handles.first() {
+            if let Some(head_body) = rigid_body_set.get_mut(*head_handle) {
+                let head_pos = Vector2::new(head_body.translation().x, head_body.translation().y);
+                let head_angle = head_body.rotation().angle();
                 
-                // Add some noise to the amplitude for each segment
-                let noise = (phase * 2.0).sin() * 0.2; // Subtle variation
-                let target_velocity = (phase.sin() + noise) * target_velocity_amplitude;
-                
-                joint.data.set_motor_velocity(JointAxis::AngX, target_velocity, motor_force_factor);
-                total_applied_velocity += target_velocity.abs();
+                // Calculate desired direction based on target
+                let desired_direction = if let Some(target) = self.target_position {
+                    (target - head_pos).try_normalize(1e-6).unwrap_or_else(Vector2::zeros)
+                } else {
+                    Vector2::new(head_angle.cos(), head_angle.sin())
+                };
+
+                // Moderate rotation with maximum angular velocity
+                let current_dir = Vector2::new(head_angle.cos(), head_angle.sin());
+                let angle_diff = desired_direction.y.atan2(desired_direction.x) - head_angle;
+                let clamped_angle = angle_diff.clamp(-0.02, 0.02);  // Moderate angle range
+                let max_angular_velocity = 0.3;  // Moderate maximum angular velocity
+                let angular_velocity = clamped_angle * 0.1;  // Moderate torque
+                head_body.set_angvel(angular_velocity.clamp(-max_angular_velocity, max_angular_velocity), true);
+
+                // Moderate forward force with maximum velocity
+                let forward_force = current_dir * 0.2 * amplitude_scale;  // Moderate force
+                let current_vel = head_body.linvel();
+                let max_velocity = 2.0;  // Moderate maximum linear velocity
+                if current_vel.norm() < max_velocity {
+                    head_body.add_force(forward_force, true);
+                } else {
+                    // Apply moderate damping when exceeding max velocity
+                    head_body.set_linvel(current_vel * 0.8, true);
+                }
+
+                // Moderate wave pattern
+                let wave_length = 1.0;
+                let wave_amplitude = 0.01 * amplitude_scale;  // Moderate amplitude
+
+                for (i, handle) in self.joint_handles.iter().enumerate() {
+                    if let Some(joint) = impulse_joint_set.get_mut(*handle) {
+                        let segment_phase = (i as f32) * wave_length;
+                        let phase = self.wiggle_timer + segment_phase + id_based_phase;
+                        let target_velocity = (phase.sin() * wave_amplitude) * frequency_scale;
+                        joint.data.set_motor_velocity(JointAxis::AngX, target_velocity, 0.1);  // Moderate motor force
+                    }
+                }
+
+                // Apply energy cost based on movement
+                let energy_consumed = amplitude_scale * frequency_scale * energy_cost_scale * dt;
+                self.attributes.consume_energy(energy_consumed);
             }
         }
-
-        let energy_consumed = total_applied_velocity * base_energy_cost_per_rad_per_sec * energy_cost_scale * dt;
-        self.attributes.consume_energy(energy_consumed);
     }
 
     // Helper function to apply anisotropic drag.
@@ -172,10 +483,10 @@ impl Snake {
     fn apply_anisotropic_drag(
         body_handle: RigidBodyHandle,
         rigid_body_set: &mut RigidBodySet,
-        perp_drag_coeff: f32, // Higher resistance perpendicular to body segment
-        forward_drag_coeff: f32, // Lower resistance parallel to body segment
+        perp_drag_coeff: f32,
+        forward_drag_coeff: f32,
     ) {
-       if let Some(body) = rigid_body_set.get_mut(body_handle) {
+        if let Some(body) = rigid_body_set.get_mut(body_handle) {
             let linvel = *body.linvel();
             // Ensure velocity is not NaN or infinite, which can cause issues
             if !linvel.x.is_finite() || !linvel.y.is_finite() {
@@ -184,13 +495,12 @@ impl Snake {
 
             let angle = body.rotation().angle();
             let forward_dir = Vector2::new(angle.cos(), angle.sin());
-            let right_dir = Vector2::new(-angle.sin(), angle.cos()); // Perpendicular
+            let right_dir = Vector2::new(-angle.sin(), angle.cos());
 
             let v_forward = linvel.dot(&forward_dir);
             let v_perpendicular = linvel.dot(&right_dir);
 
-            // Quadratic drag model: F = -k * v * |v|
-            // Ensure coefficients are non-negative
+            // Quadratic drag model with increased coefficients
             let safe_perp_coeff = perp_drag_coeff.max(0.0);
             let safe_forward_coeff = forward_drag_coeff.max(0.0);
 
@@ -207,6 +517,60 @@ impl Snake {
             }
             if drag_force_forward.x.is_finite() && drag_force_forward.y.is_finite() {
                 body.add_force(drag_force_forward, true);
+            }
+        }
+    }
+
+    // Add debug drawing
+    fn draw_debug_info(
+        &self,
+        painter: &egui::Painter,
+        rigid_body_set: &RigidBodySet,
+        world_to_screen: &dyn Fn(Vector2<f32>) -> egui::Pos2,
+        zoom: f32,
+    ) {
+        // Draw problematic segments
+        for &segment_idx in &self.debug_info.problematic_segments {
+            if let Some(handle) = self.segment_handles.get(segment_idx) {
+                if let Some(body) = rigid_body_set.get(*handle) {
+                    let pos = Vector2::new(body.translation().x, body.translation().y);
+                    let screen_pos = world_to_screen(pos);
+                    
+                    // Draw red circle around problematic segment
+                    painter.circle_stroke(
+                        screen_pos,
+                        self.segment_radius * 2.0 * zoom,
+                        egui::Stroke::new(2.0, egui::Color32::RED),
+                    );
+                }
+            }
+        }
+
+        // Draw velocity indicator
+        if let Some(head_handle) = self.segment_handles.first() {
+            if let Some(head_body) = rigid_body_set.get(*head_handle) {
+                let pos = Vector2::new(head_body.translation().x, head_body.translation().y);
+                let vel = head_body.linvel();
+                let screen_pos = world_to_screen(pos);
+                let screen_vel = world_to_screen(pos + vel) - screen_pos;
+                
+                // Draw velocity vector
+                painter.line_segment(
+                    [screen_pos, screen_pos + screen_vel],
+                    egui::Stroke::new(1.0, egui::Color32::YELLOW),
+                );
+            }
+        }
+    }
+
+    // Add method to handle collision events
+    fn handle_collision(&mut self, rigid_body_set: &mut RigidBodySet, other_id: u128) {
+        // If we collide with another snake, reduce our velocity to prevent glitches
+        if let Some(head_handle) = self.segment_handles.first() {
+            if let Some(head_body) = rigid_body_set.get_mut(*head_handle) {
+                let current_vel = head_body.linvel();
+                // Reduce velocity by 50% when colliding with another snake
+                head_body.set_linvel(current_vel * 0.5, true);
             }
         }
     }
@@ -249,18 +613,25 @@ impl Creature for Snake {
     fn update_state_and_behavior(
         &mut self,
         dt: f32,
-        _own_id: u128, // Parameter added to match trait, underscore if not used yet
-        _rigid_body_set: &mut RigidBodySet, 
+        _own_id: u128,
+        rigid_body_set: &mut RigidBodySet,
         impulse_joint_set: &mut ImpulseJointSet,
-        _collider_set: &ColliderSet, // Parameter added
-        _query_pipeline: &QueryPipeline, // Parameter added
-        _all_creatures_info: &Vec<CreatureInfo>, // Parameter added
-        _world_context: &WorldContext, 
+        _collider_set: &ColliderSet,
+        _query_pipeline: &QueryPipeline,
+        _all_creatures_info: &Vec<CreatureInfo>,
+        world_context: &WorldContext,
     ) {
+        // Check and correct all segments for boundary violations
+        self.check_and_correct_segments(rigid_body_set, world_context);
+
+        // Update target position and check if stuck
+        self.update_target_position(rigid_body_set, world_context);
+        self.check_if_stuck(rigid_body_set);
+        self.target_update_timer += dt;
+
         // --- State Transition Logic --- 
         let mut next_state = self.current_state; // Start with current state
-        let current_energy = self.attributes.energy;
-
+        
         // Update rest timer
         if self.current_state == CreatureState::Resting {
             self.rest_timer += dt;
@@ -296,55 +667,46 @@ impl Creature for Snake {
         }
         // TODO: Add transition logic for Fleeing based on sensed predators
         
-        if next_state != self.current_state {
-            println!(
-                "State Transition: {:?} -> {:?} (Energy: {:.2}, Rest Time: {:.2}s)", 
-                self.current_state, next_state, current_energy, self.rest_timer
-            );
-        }
         self.current_state = next_state;
 
         // --- Execute Behavior based on State --- 
         match self.current_state {
             CreatureState::Idle => {
-                // Minimal movement or stop motors completely
-                self.apply_wiggle(dt, impulse_joint_set, 0.1, 0.5, 0.1); // Very slow, low cost
+                self.apply_wiggle(dt, impulse_joint_set, rigid_body_set, 0.1, 0.3, 0.1);
             }
             CreatureState::Wandering => {
-                // Standard wiggle - Increased frequency scale
-                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.5, 1.5); // Increased frequency_scale (1.0->1.5)
+                let energy_factor = self.attributes.energy / self.attributes.max_energy;
+                let amplitude = 1.0 * energy_factor;
+                let frequency = 1.0 * (1.0 + energy_factor * 0.3);
+                self.apply_wiggle(dt, impulse_joint_set, rigid_body_set, amplitude, frequency, 1.0);
             }
             CreatureState::Resting => {
-                // No active movement, energy recovery happens passively in App::update
-                 // Ensure motors target zero velocity, but keep force available
-                 let motor_force_factor = 4.0; // Get the same factor used in apply_wiggle
-                 for handle in self.joint_handles.iter() {
-                     if let Some(joint) = impulse_joint_set.get_mut(*handle) {
-                         // Set target velocity to 0, but KEEP the force factor
-                         joint.data.set_motor_velocity(JointAxis::AngX, 0.0, motor_force_factor);
-                     }
-                 }
+                let motor_force_factor = 2.0;
+                for handle in self.joint_handles.iter() {
+                    if let Some(joint) = impulse_joint_set.get_mut(*handle) {
+                        joint.data.set_motor_velocity(JointAxis::AngX, 0.0, motor_force_factor);
+                    }
+                }
             }
             CreatureState::SeekingFood => {
-                // TODO: Implement movement towards food
-                self.apply_wiggle(dt, impulse_joint_set, 1.0, 1.2, 1.0); 
+                let hunger_factor = 1.0 - (self.attributes.energy / self.attributes.max_energy);
+                let amplitude = 1.5 * (1.0 + hunger_factor);
+                let frequency = 1.5 * (1.0 + hunger_factor * 0.3);
+                self.apply_wiggle(dt, impulse_joint_set, rigid_body_set, amplitude, frequency, 1.5);
             }
             CreatureState::Fleeing => {
-                // TODO: Implement movement away from predator
-                self.apply_wiggle(dt, impulse_joint_set, 1.5, 1.5, 1.5); 
+                self.apply_wiggle(dt, impulse_joint_set, rigid_body_set, 2.0, 1.5, 2.0);
             }
         }
     }
 
     /// Override the default apply_custom_forces for Snake.
     fn apply_custom_forces(&self, rigid_body_set: &mut RigidBodySet, _world_context: &WorldContext) {
-        // --- Apply Hydrodynamic Forces --- 
-        // These coefficients NEED TUNING!
-        let perp_drag = 5.0;  // Significantly higher drag for sideways motion
-        let forward_drag = 0.5; // Lower drag for forward/backward motion
+        // Moderate drag coefficients for stability
+        let perp_drag = 15.0;  // Moderate drag for sideways motion
+        let forward_drag = 5.0; // Moderate drag for forward/backward motion
 
         for handle in self.get_rigid_body_handles() { 
-            // Call the associated helper function (now part of impl Snake)
             Snake::apply_anisotropic_drag(*handle, rigid_body_set, perp_drag, forward_drag);
         }
     }
@@ -456,62 +818,320 @@ impl Creature for Snake {
                 ));
             }
         }
+
+        // Add debug drawing when hovered
+        if is_hovered {
+            self.draw_debug_info(painter, rigid_body_set, world_to_screen, zoom);
+        }
+    }
+}
+
+// Add a physics hooks implementation to handle collisions
+struct SnakePhysicsHooks;
+
+impl PhysicsHooks for SnakePhysicsHooks {
+    fn filter_contact_pair(&self, context: &PairFilterContext) -> Option<SolverFlags> {
+        // Get the user data (creature IDs) of both colliders
+        let id1 = context.colliders[context.collider1].user_data;
+        let id2 = context.colliders[context.collider2].user_data;
+
+        // If both colliders are from the same snake, disable contact computation
+        if id1 == id2 {
+            return None;
+        }
+
+        // For collisions between different snakes, enable contact computation but with reduced forces
+        Some(SolverFlags::COMPUTE_IMPULSES)
+    }
+
+    fn modify_solver_contacts(&self, context: &mut ContactModificationContext) {
+        // Get the user data (creature IDs) of both colliders
+        let id1 = context.colliders[context.collider1].user_data;
+        let id2 = context.colliders[context.collider2].user_data;
+
+        // If this is a collision between different snakes
+        if id1 != id2 {
+            // Reduce the friction and restitution to prevent sticking and bouncing
+            for solver_contact in &mut *context.solver_contacts {
+                solver_contact.friction = 0.3;
+                solver_contact.restitution = 0.1;
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rapier2d::prelude::*;
     use nalgebra::Vector2;
+    use std::f32;
+    use rapier2d::prelude::*;
+    use std::collections::HashMap;
 
-    fn setup_test_snake(id: u128, initial_position: Vector2<f32>) -> (Snake, RigidBodySet, ColliderSet, ImpulseJointSet) {
+    fn setup_test_snake(id: u128, initial_position: Vector2<f32>) -> (
+        Snake,
+        HashMap<RigidBodyHandle, RigidBody>,
+        HashMap<RigidBodyHandle, Collider>,
+        Vec<Option<RevoluteJoint>>
+    ) {
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
         let mut impulse_joint_set = ImpulseJointSet::new();
         let mut snake = Snake::new(0.1, 5, 0.2);
-        snake.spawn_rapier(
-            &mut rigid_body_set,
-            &mut collider_set,
-            &mut impulse_joint_set,
-            initial_position,
-            id,
-        );
-        (snake, rigid_body_set, collider_set, impulse_joint_set)
+        
+        // Store components for later use
+        let mut bodies = HashMap::new();
+        let mut colliders = HashMap::new();
+        let mut joints = Vec::new();
+
+        // Create segments
+        let mut parent_handle: Option<RigidBodyHandle> = None;
+        let mut rng = rand::thread_rng();
+        let initial_angle: f32 = rng.gen_range(-0.05..0.05);
+
+        for i in 0..snake.segment_count {
+            let segment_x = initial_position.x + (i as f32) * snake.segment_spacing * initial_angle.cos();
+            let segment_y = initial_position.y + (i as f32) * snake.segment_spacing * initial_angle.sin();
+            let orientation = initial_angle;
+
+            // Create RigidBody
+            let rb = RigidBodyBuilder::dynamic()
+                .translation(vector![segment_x, segment_y])
+                .rotation(orientation)
+                .linear_damping(20.0)
+                .angular_damping(10.0)
+                .build();
+            let segment_handle = rigid_body_set.insert(rb);
+            bodies.insert(segment_handle, rigid_body_set.get(segment_handle).unwrap().clone());
+            snake.segment_handles.push(segment_handle);
+
+            // Create Collider
+            let collider = ColliderBuilder::ball(snake.segment_radius)
+                .restitution(0.0)
+                .density(5.0)
+                .friction(0.1)
+                .user_data(id)
+                .build();
+            let collider_handle = collider_set.insert_with_parent(collider.clone(), segment_handle, &mut rigid_body_set);
+            colliders.insert(segment_handle, collider);
+
+            // Create joint
+            if let Some(prev_handle) = parent_handle {
+                let joint = RevoluteJointBuilder::new()
+                    .local_anchor1(Point2::new(snake.segment_spacing / 2.0, 0.0))
+                    .local_anchor2(Point2::new(-snake.segment_spacing / 2.0, 0.0))
+                    .motor_velocity(0.0, 0.0)
+                    .motor_max_force(0.5)
+                    .motor_model(MotorModel::ForceBased)
+                    .limits([-0.05, 0.05])
+                    .build();
+                let joint_handle = impulse_joint_set.insert(prev_handle, segment_handle, joint.clone(), true);
+                snake.joint_handles.push(joint_handle);
+                joints.push(Some(joint));
+            } else {
+                joints.push(None);
+            }
+
+            parent_handle = Some(segment_handle);
+        }
+
+        (snake, bodies, colliders, joints)
     }
 
     #[test]
-    fn test_snake_movement_randomization() {
-        // Create two snakes with different IDs
-        let (mut snake1, _rigid_body_set1, _collider_set1, mut impulse_joint_set1) = setup_test_snake(1, Vector2::new(0.0, 0.0));
-        let (mut snake2, _rigid_body_set2, _collider_set2, mut impulse_joint_set2) = setup_test_snake(2, Vector2::new(0.0, 0.0));
+    fn test_snake_movement_stability() {
+        // Create physics pipeline and other required components
+        let gravity = vector![0.0, 0.0];
+        let mut physics_pipeline = PhysicsPipeline::new();
+        let mut island_manager = IslandManager::new();
+        let mut broad_phase = BroadPhaseMultiSap::new();
+        let mut narrow_phase = NarrowPhase::new();
+        let mut rigid_body_set = RigidBodySet::new();
+        let mut collider_set = ColliderSet::new();
+        let mut impulse_joint_set = ImpulseJointSet::new();
+        let mut multibody_joint_set = MultibodyJointSet::new();
+        let mut ccd_solver = CCDSolver::new();
+        let mut query_pipeline = QueryPipeline::new();
 
-        // Record the target velocities set by apply_wiggle for each snake
-        let mut snake1_velocities = Vec::new();
-        let mut snake2_velocities = Vec::new();
-
-        for _ in 0..10 {
-            // Apply wiggle for both snakes
-            snake1.apply_wiggle(0.016, &mut impulse_joint_set1, 1.0, 1.0, 1.0);
-            snake2.apply_wiggle(0.016, &mut impulse_joint_set2, 1.0, 1.0, 1.0);
-
-            // Get the first joint's target velocity for each snake
-            let joint1 = impulse_joint_set1.get(snake1.joint_handles[0]).unwrap();
-            let joint2 = impulse_joint_set2.get(snake2.joint_handles[0]).unwrap();
-            let vel1 = joint1.data.motor(JointAxis::AngX).unwrap().target_vel;
-            let vel2 = joint2.data.motor(JointAxis::AngX).unwrap().target_vel;
-            snake1_velocities.push(vel1);
-            snake2_velocities.push(vel2);
-        }
-
-        // Verify that the snakes have different movement patterns
-        let mut differences_found = false;
-        for (v1, v2) in snake1_velocities.iter().zip(snake2_velocities.iter()) {
-            if (v1 - v2).abs() > 0.001 {
-                differences_found = true;
-                break;
+        // Create a single snake in the center
+        let (mut snake, bodies, colliders, joints) = setup_test_snake(1, Vector2::new(0.0, 0.0));
+        
+        // Add snake bodies to the physics world
+        for (old_handle, body) in bodies {
+            let new_handle = rigid_body_set.insert(body);
+            // Update the handle in the snake to point to the new body
+            if let Some(pos) = snake.segment_handles.iter().position(|&h| h == old_handle) {
+                snake.segment_handles[pos] = new_handle;
             }
         }
-        assert!(differences_found, "Snakes should have different movement patterns");
+
+        // Add colliders to the physics world
+        for (body_handle, collider) in colliders {
+            if let Some(new_body_handle) = snake.segment_handles.iter().find(|&&h| h == body_handle) {
+                collider_set.insert_with_parent(collider, *new_body_handle, &mut rigid_body_set);
+            }
+        }
+
+        // Add joints to the physics world
+        for (i, joint) in joints.iter().enumerate() {
+            if let Some(joint) = joint {
+                if i + 1 < snake.segment_handles.len() {
+                    let parent_handle = snake.segment_handles[i];
+                    let child_handle = snake.segment_handles[i + 1];
+                    let new_joint = impulse_joint_set.insert(parent_handle, child_handle, joint.clone(), true);
+                    snake.joint_handles[i] = new_joint;
+                }
+            }
+        }
+        
+        // Create world context
+        let world_context = WorldContext {
+            world_height: 10.0,
+            pixels_per_meter: 100.0,
+        };
+
+        // Track positions and velocities
+        let mut positions: Vec<Vec<Vector2<f32>>> = Vec::new();
+        let mut velocities: Vec<Vec<Vector2<f32>>> = Vec::new();
+        let mut max_position_change: f32 = 0.0;
+        let mut max_velocity_change: f32 = 0.0;
+        let mut problematic_frames: Vec<usize> = Vec::new();
+        let mut last_safe_frame: usize = 0;
+
+        // Run simulation for 1000 steps
+        for frame in 0..1000 {
+            // Record current state
+            let mut frame_positions = Vec::new();
+            let mut frame_velocities = Vec::new();
+            
+            for handle in &snake.segment_handles {
+                if let Some(body) = rigid_body_set.get(*handle) {
+                    let pos = Vector2::new(body.translation().x, body.translation().y);
+                    let vel = Vector2::new(body.linvel().x, body.linvel().y);
+                    frame_positions.push(pos);
+                    frame_velocities.push(vel);
+                }
+            }
+            
+            positions.push(frame_positions);
+            velocities.push(frame_velocities);
+
+            // Update snake
+            snake.update_state_and_behavior(
+                0.016, // 60 FPS
+                1,
+                &mut rigid_body_set,
+                &mut impulse_joint_set,
+                &collider_set,
+                &query_pipeline,
+                &Vec::new(),
+                &world_context,
+            );
+
+            // Step the physics simulation
+            physics_pipeline.step(
+                &gravity,
+                &IntegrationParameters::default(),
+                &mut island_manager,
+                &mut broad_phase,
+                &mut narrow_phase,
+                &mut rigid_body_set,
+                &mut collider_set,
+                &mut impulse_joint_set,
+                &mut multibody_joint_set,
+                &mut ccd_solver,
+                Some(&mut query_pipeline),
+                &(),
+                &(),
+            );
+
+            // Check for sudden changes if we have previous frame data
+            if frame > 0 {
+                let prev_positions = &positions[frame - 1];
+                let prev_velocities = &velocities[frame - 1];
+                let curr_positions = &positions[frame];
+                let curr_velocities = &velocities[frame];
+
+                let mut frame_has_problem = false;
+
+                // Check each segment
+                for i in 0..curr_positions.len() {
+                    // Calculate position change
+                    let pos_change = (curr_positions[i] - prev_positions[i]).norm();
+                    max_position_change = max_position_change.max(pos_change);
+
+                    // Calculate velocity change
+                    let vel_change = (curr_velocities[i] - prev_velocities[i]).norm();
+                    max_velocity_change = max_velocity_change.max(vel_change);
+
+                    // If change is too large, record the frame
+                    if pos_change > 0.5 || vel_change > 5.0 {
+                        frame_has_problem = true;
+                        problematic_frames.push(frame);
+                        println!("\nFrame {}: Segment {} had large change", frame, i);
+                        println!("  Position change: {:.3} units", pos_change);
+                        println!("  Velocity change: {:.3} units", vel_change);
+                        println!("  Previous position: {:?}", prev_positions[i]);
+                        println!("  Current position: {:?}", curr_positions[i]);
+                        println!("  Previous velocity: {:?}", prev_velocities[i]);
+                        println!("  Current velocity: {:?}", curr_velocities[i]);
+                        
+                        // Print joint states
+                        if i < snake.joint_handles.len() {
+                            if let Some(joint) = impulse_joint_set.get(snake.joint_handles[i]) {
+                                println!("  Joint {} motor velocity: {:.3}", i, 
+                                    joint.data.motor(JointAxis::AngX).unwrap().target_vel);
+                            }
+                        }
+
+                        // Print snake state
+                        println!("  Snake state: {:?}", snake.current_state);
+                        println!("  Energy: {:.1}/{:.1}", 
+                            snake.attributes.energy, 
+                            snake.attributes.max_energy);
+                    }
+                }
+
+                if !frame_has_problem {
+                    last_safe_frame = frame;
+                }
+            }
+
+            // Check if snake is still within bounds
+            for (i, pos) in positions[frame].iter().enumerate() {
+                if pos.x.abs() >= world_context.world_height/2.0 || 
+                   pos.y.abs() >= world_context.world_height/2.0 {
+                    println!("\nOUT OF BOUNDS at frame {}: Segment {}", frame, i);
+                    println!("  Position: {:?}", pos);
+                    println!("  Last safe frame: {}", last_safe_frame);
+                    println!("  Frames since last safe: {}", frame - last_safe_frame);
+                    panic!("Snake went out of bounds");
+                }
+            }
+        }
+
+        // Print summary
+        println!("\nMovement Analysis Summary:");
+        println!("Maximum position change per frame: {:.3}", max_position_change);
+        println!("Maximum velocity change per frame: {:.3}", max_velocity_change);
+        println!("Number of problematic frames: {}", problematic_frames.len());
+        
+        if !problematic_frames.is_empty() {
+            println!("\nProblematic frames: {:?}", problematic_frames);
+            
+            // Analyze patterns in problematic frames
+            let mut gaps = Vec::new();
+            for i in 1..problematic_frames.len() {
+                gaps.push(problematic_frames[i] - problematic_frames[i-1]);
+            }
+            if !gaps.is_empty() {
+                println!("Average gap between problems: {:.1} frames", 
+                    gaps.iter().sum::<usize>() as f32 / gaps.len() as f32);
+            }
+        }
+
+        // Assert that changes weren't too drastic
+        assert!(max_position_change < 1.0, "Position changes too large: {:.3}", max_position_change);
+        assert!(max_velocity_change < 10.0, "Velocity changes too large: {:.3}", max_velocity_change);
     }
 } 
