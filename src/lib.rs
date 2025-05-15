@@ -3,6 +3,8 @@ pub mod creature;
 pub mod creatures;
 pub mod app;
 
+use crate::app::SoftiesApp;
+
 #[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};
 
@@ -21,7 +23,7 @@ pub async fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue>
         .start(
             canvas_id,
             web_options,
-            Box::new(|_cc| Box::new(SoftiesApp::default())), // Use SoftiesApp
+            Box::new(|_cc| Box::new(SoftiesApp::default())),
         )
         .await
 } 

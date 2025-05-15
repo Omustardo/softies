@@ -4,7 +4,9 @@ Soft body animations based on https://www.youtube.com/@argonautcode:
 * https://www.youtube.com/watch?v=qlfh_rv6khY
 * https://www.youtube.com/watch?v=GXh0Vxg7AnQ
 
-Generated almost entirely by vibe coding using Cursor.
+Generated almost entirely by vibe coding using Cursor (no manual modification of the code, only prompting).
+
+Test it out at https://www.omustardo/com/share/soft_body_aquarium/
 
 # Development process
 
@@ -88,6 +90,6 @@ Queries: 10, 370
 
 Queries: 60, 430
 
-## Day 8
+## Day 8 (2025-05-13)
 
-TODO
+I decided to stop working on this. While vibe coding is cool when something goes well, it isn't quite there yet. I found the process more frustrating than it was worth. I'll continue using LLM generated code in moderation.
